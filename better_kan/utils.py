@@ -4,6 +4,162 @@ from tqdm import tqdm
 from torch.utils.data import Dataset
 
 
+def train(
+    kan,
+    dataset,
+    opt="LBFGS",
+    steps=100,
+    log=1,
+    lamb=1.0e-2,
+    lamb_l1=1.0,
+    lamb_entropy=1.0,
+    update_grid=True,
+    grid_update_num=10,
+    loss_fn=None,
+    lr=1.0,
+    stop_grid_update_step=50,
+    batch=-1,
+    metrics=None,
+    sglr_avoid=False,
+):
+    """
+    training
+
+    Args:
+    -----
+        dataset : dic
+            contains dataset['train_input'], dataset['train_label'], dataset['test_input'], dataset['test_label']
+        opt : str
+            "LBFGS" or "Adam"
+        steps : int
+            training steps
+        log : int
+            logging frequency
+        lamb : float
+            overall penalty strength
+        lamb_l1 : float
+            l1 penalty strength
+        lamb_entropy : float
+            entropy penalty strength
+        lamb_coef : float
+            coefficient magnitude penalty strength
+        lamb_coefdiff : float
+            difference of nearby coefficits (smoothness) penalty strength
+        update_grid : bool
+            If True, update grid regularly before stop_grid_update_step
+        grid_update_num : int
+            the number of grid updates before stop_grid_update_step
+        stop_grid_update_step : int
+            no grid updates after this training step
+        batch : int
+            batch size, if -1 then full.
+        small_mag_threshold : float
+            threshold to determine large or small numbers (may want to apply larger penalty to smaller numbers)
+        small_reg_factor : float
+            penalty strength applied to small factors relative to large factos
+
+    Returns:
+    --------
+        results : dic
+            results['train_loss'], 1D array of training losses (RMSE)
+            results['test_loss'], 1D array of test losses (RMSE)
+            results['reg'], 1D array of regularization
+
+    Example
+    -------
+    >>> # for interactive examples, please see demos
+    >>> from utils import create_dataset
+    >>> model = KAN(width=[2,5,1], grid=5, k=3, noise_scale=0.1, seed=0)
+    >>> f = lambda x: torch.exp(torch.sin(torch.pi*x[:,[0]]) + x[:,[1]]**2)
+    >>> dataset = create_dataset(f, n_var=2)
+    >>> model.train(dataset, opt='LBFGS', steps=50, lamb=0.01);
+    >>> model.plot()
+    """
+
+    pbar = tqdm(range(steps), desc="description", ncols=100)
+
+    if loss_fn is None:
+        loss_fn = loss_fn_eval = lambda x, y: torch.mean((x - y) ** 2)
+    else:
+        loss_fn = loss_fn_eval = loss_fn
+
+    grid_update_freq = int(stop_grid_update_step / grid_update_num)
+
+    if opt == "Adam":
+        optimizer = torch.optim.Adam(kan.parameters(), lr=lr)
+    elif opt == "LBFGS":
+        optimizer = torch.optim.LBFGS(kan.parameters(), lr=lr, history_size=10, line_search_fn="strong_wolfe", tolerance_grad=1e-32, tolerance_change=1e-32)
+    results = {}
+    results["train_loss"] = []
+    results["test_loss"] = []
+    results["reg"] = []
+    if metrics is not None:
+        for i in range(len(metrics)):
+            results[metrics[i].__name__] = []
+
+    if batch == -1 or batch > dataset["train_input"].shape[0]:
+        batch_size = dataset["train_input"].shape[0]
+        batch_size_test = dataset["test_input"].shape[0]
+    else:
+        batch_size = batch
+        batch_size_test = batch
+
+    global train_loss, reg_
+
+    def closure():
+        global train_loss, reg_
+        optimizer.zero_grad()
+        pred = kan.forward(dataset["train_input"][train_id])
+        if sglr_avoid is True:  # Remove any nan
+            id_ = torch.where(torch.isnan(torch.sum(pred, dim=1)) == False)[0]
+            train_loss = loss_fn(pred[id_], dataset["train_label"][train_id][id_])
+        else:
+            train_loss = loss_fn(pred, dataset["train_label"][train_id])
+        reg_ = kan.regularization_loss()
+        objective = train_loss + lamb * reg_
+        objective.backward()
+        return objective
+
+    for _ in pbar:
+
+        train_id = np.random.choice(dataset["train_input"].shape[0], batch_size, replace=False)
+        test_id = np.random.choice(dataset["test_input"].shape[0], batch_size_test, replace=False)
+
+        if _ % grid_update_freq == 0 and _ < stop_grid_update_step and update_grid:
+            kan.forward(dataset["train_input"][train_id], update_grid=True)
+
+        if opt == "LBFGS":
+            optimizer.step(closure)
+
+        if opt == "Adam":
+            pred = kan.forward(dataset["train_input"][train_id])
+            if sglr_avoid is True:
+                id_ = torch.where(torch.isnan(torch.sum(pred, dim=1)) == False)[0]
+                train_loss = loss_fn(pred[id_], dataset["train_label"][train_id][id_])
+            else:
+                train_loss = loss_fn(pred, dataset["train_label"][train_id])
+            reg_ = kan.regularization_loss(lamb_l1, lamb_entropy)
+            loss = train_loss + lamb * reg_
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+
+        test_loss = loss_fn_eval(kan.forward(dataset["test_input"][test_id]), dataset["test_label"][test_id])
+
+        if _ % log == 0:
+            pbar.set_description("train loss: %.2e | test loss: %.2e | reg: %.2e " % (torch.sqrt(train_loss).cpu().detach().numpy(), torch.sqrt(test_loss).cpu().detach().numpy(), reg_.cpu().detach().numpy()))
+
+        if metrics is not None:
+            for i in range(len(metrics)):
+                results[metrics[i].__name__].append(metrics[i]().item())
+
+        results["train_loss"].append(torch.sqrt(train_loss).cpu().detach().numpy())
+        results["test_loss"].append(torch.sqrt(test_loss).cpu().detach().numpy())
+        results["reg"].append(reg_.cpu().detach().numpy())
+
+    return results
+
+
 def plot(kan, beta=3, mask=False, scale=1.0, tick=False, in_vars=None, out_vars=None, title=None, ax=None):
     """
     plot KAN. Before plot, kan.get_stats(x) should be run on a typical input to collect statistics on activations functions
@@ -113,6 +269,7 @@ def plot(kan, beta=3, mask=False, scale=1.0, tick=False, in_vars=None, out_vars=
                 inset_ax.plot(x_ranges[:, i], acts_vals[:, j, i], "-", color="red", alpha=alpha[j, i])
                 for spine in inset_ax.spines.values():
                     spine.set_alpha(alpha[j, i])
+                inset_ax.patch.set_alpha(alpha[j, i])
 
     if title is not None:
         ax.set_title(title)
@@ -294,161 +451,3 @@ def create_dataset(f, n_var=2, ranges=[-1, 1], train_num=1000, test_num=1000, no
     dataset["test_label"] = test_label
 
     return dataset
-
-
-def train(
-    kan,
-    dataset,
-    opt="LBFGS",
-    steps=100,
-    log=1,
-    lamb=1.0e-2,
-    lamb_l1=1.0,
-    lamb_entropy=1.0,
-    update_grid=True,
-    grid_update_num=10,
-    loss_fn=None,
-    lr=1.0,
-    stop_grid_update_step=50,
-    batch=-1,
-    small_mag_threshold=1e-16,
-    small_reg_factor=1.0,
-    metrics=None,
-    sglr_avoid=False,
-):
-    """
-    training
-
-    Args:
-    -----
-        dataset : dic
-            contains dataset['train_input'], dataset['train_label'], dataset['test_input'], dataset['test_label']
-        opt : str
-            "LBFGS" or "Adam"
-        steps : int
-            training steps
-        log : int
-            logging frequency
-        lamb : float
-            overall penalty strength
-        lamb_l1 : float
-            l1 penalty strength
-        lamb_entropy : float
-            entropy penalty strength
-        lamb_coef : float
-            coefficient magnitude penalty strength
-        lamb_coefdiff : float
-            difference of nearby coefficits (smoothness) penalty strength
-        update_grid : bool
-            If True, update grid regularly before stop_grid_update_step
-        grid_update_num : int
-            the number of grid updates before stop_grid_update_step
-        stop_grid_update_step : int
-            no grid updates after this training step
-        batch : int
-            batch size, if -1 then full.
-        small_mag_threshold : float
-            threshold to determine large or small numbers (may want to apply larger penalty to smaller numbers)
-        small_reg_factor : float
-            penalty strength applied to small factors relative to large factos
-
-    Returns:
-    --------
-        results : dic
-            results['train_loss'], 1D array of training losses (RMSE)
-            results['test_loss'], 1D array of test losses (RMSE)
-            results['reg'], 1D array of regularization
-
-    Example
-    -------
-    >>> # for interactive examples, please see demos
-    >>> from utils import create_dataset
-    >>> model = KAN(width=[2,5,1], grid=5, k=3, noise_scale=0.1, seed=0)
-    >>> f = lambda x: torch.exp(torch.sin(torch.pi*x[:,[0]]) + x[:,[1]]**2)
-    >>> dataset = create_dataset(f, n_var=2)
-    >>> model.train(dataset, opt='LBFGS', steps=50, lamb=0.01);
-    >>> model.plot()
-    """
-
-    pbar = tqdm(range(steps), desc="description", ncols=100)
-
-    if loss_fn is None:
-        loss_fn = loss_fn_eval = lambda x, y: torch.mean((x - y) ** 2)
-    else:
-        loss_fn = loss_fn_eval = loss_fn
-
-    grid_update_freq = int(stop_grid_update_step / grid_update_num)
-
-    if opt == "Adam":
-        optimizer = torch.optim.Adam(kan.parameters(), lr=lr)
-    elif opt == "LBFGS":
-        optimizer = torch.optim.LBFGS(kan.parameters(), lr=lr, history_size=10, line_search_fn="strong_wolfe", tolerance_grad=1e-32, tolerance_change=1e-32)
-    results = {}
-    results["train_loss"] = []
-    results["test_loss"] = []
-    results["reg"] = []
-    if metrics is not None:
-        for i in range(len(metrics)):
-            results[metrics[i].__name__] = []
-
-    if batch == -1 or batch > dataset["train_input"].shape[0]:
-        batch_size = dataset["train_input"].shape[0]
-        batch_size_test = dataset["test_input"].shape[0]
-    else:
-        batch_size = batch
-        batch_size_test = batch
-
-    global train_loss, reg_
-
-    def closure():
-        global train_loss, reg_
-        optimizer.zero_grad()
-        pred = kan.forward(dataset["train_input"][train_id])
-        if sglr_avoid is True:  # Remove any nan
-            id_ = torch.where(torch.isnan(torch.sum(pred, dim=1)) == False)[0]
-            train_loss = loss_fn(pred[id_], dataset["train_label"][train_id][id_])
-        else:
-            train_loss = loss_fn(pred, dataset["train_label"][train_id])
-        reg_ = kan.regularization_loss()
-        objective = train_loss + lamb * reg_
-        objective.backward()
-        return objective
-
-    for _ in pbar:
-
-        train_id = np.random.choice(dataset["train_input"].shape[0], batch_size, replace=False)
-        test_id = np.random.choice(dataset["test_input"].shape[0], batch_size_test, replace=False)
-
-        if _ % grid_update_freq == 0 and _ < stop_grid_update_step and update_grid:
-            kan.forward(dataset["train_input"][train_id], update_grid=True)
-
-        if opt == "LBFGS":
-            optimizer.step(closure)
-
-        if opt == "Adam":
-            pred = kan.forward(dataset["train_input"][train_id])
-            if sglr_avoid is True:
-                id_ = torch.where(torch.isnan(torch.sum(pred, dim=1)) == False)[0]
-                train_loss = loss_fn(pred[id_], dataset["train_label"][train_id][id_])
-            else:
-                train_loss = loss_fn(pred, dataset["train_label"][train_id])
-            reg_ = kan.regularization_loss(lamb_l1, lamb_entropy)
-            loss = train_loss + lamb * reg_
-            optimizer.zero_grad()
-            loss.backward()
-            optimizer.step()
-
-        test_loss = loss_fn_eval(kan.forward(dataset["test_input"][test_id]), dataset["test_label"][test_id])
-
-        if _ % log == 0:
-            pbar.set_description("train loss: %.2e | test loss: %.2e | reg: %.2e " % (torch.sqrt(train_loss).cpu().detach().numpy(), torch.sqrt(test_loss).cpu().detach().numpy(), reg_.cpu().detach().numpy()))
-
-        if metrics is not None:
-            for i in range(len(metrics)):
-                results[metrics[i].__name__].append(metrics[i]().item())
-
-        results["train_loss"].append(torch.sqrt(train_loss).cpu().detach().numpy())
-        results["test_loss"].append(torch.sqrt(test_loss).cpu().detach().numpy())
-        results["reg"].append(reg_.cpu().detach().numpy())
-
-    return results

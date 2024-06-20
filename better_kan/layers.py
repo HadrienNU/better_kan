@@ -33,6 +33,7 @@ class BasisKANLayer(torch.nn.Module):
             self.reduced_in_dim = self.input_dim
             mask = torch.eye(self.input_dim)
         self.register_buffer("mask", mask)
+        self.register_buffer("inv_mask", torch.linalg.pinv(mask))
 
         self.scale_noise = scale_noise
         self.scale_base = scale_base
@@ -60,7 +61,8 @@ class BasisKANLayer(torch.nn.Module):
         # Initialize random splines weight
         with torch.no_grad():
             noise = (torch.rand(self.grid.shape[0], self.reduced_in_dim, self.output_dim) - 1 / 2) * self.scale_noise / self.n_basis_function
-            self.weights.data.copy_(self.curve2coeff(self.grid, noise))
+            noise = torch.einsum("ijk,jl->ilk", noise, self.mask)
+            self.scaled_weights = self.curve2coeff(self.grid, noise)
 
     def basis(self, x: torch.Tensor):
         """
@@ -107,9 +109,17 @@ class BasisKANLayer(torch.nn.Module):
     def scaled_weights(self):
         return torch.matmul(self.weights * (self.basis_scaler).unsqueeze(1), self.mask)
 
+    @scaled_weights.setter
+    def scaled_weights(self, values):
+        self.weights.data.copy_(torch.matmul(values, self.inv_mask) / (self.basis_scaler).unsqueeze(1))
+
     @property
     def scaled_base_weight(self):
         return torch.matmul(self.base_scaler, self.mask)
+
+    @scaled_base_weight.setter
+    def scaled_base_weight(self, values):
+        self.base_scaler.data.copy_(torch.matmul(values, self.inv_mask))
 
     def forward(self, x: torch.Tensor):
         original_shape = x.shape
@@ -143,7 +153,6 @@ class BasisKANLayer(torch.nn.Module):
     def update_grid(self, x: torch.Tensor, margin=0.01):
         assert x.dim() == 2 and x.size(1) == self.input_dim
         batch = x.size(0)
-
         basis_values = self.basis(x)
         unreduced_basis_output = torch.sum(basis_values.unsqueeze(1) * self.scaled_weights.unsqueeze(0), dim=2)  # (batch, out, in)
         unreduced_basis_output = unreduced_basis_output.transpose(1, 2)  # (batch, in, out)
@@ -156,7 +165,7 @@ class BasisKANLayer(torch.nn.Module):
 
         grid = self.grid_alpha * grid_uniform + (1 - self.grid_alpha) * grid_adaptive
         self.grid.copy_(grid)
-        self.weights.data.copy_(self.curve2coeff(x, unreduced_basis_output))
+        self.scaled_weights = self.curve2coeff(x, unreduced_basis_output)
 
     def regularization_loss(self, regularize_activation=1.0, regularize_entropy=1.0):
         """
@@ -420,7 +429,7 @@ class SplinesKANLayer(BasisKANLayer):
         )
 
         self.grid.copy_(grid)
-        self.weights.data.copy_(self.curve2coeff(x, unreduced_basis_output))
+        self.scaled_weights = self.curve2coeff(x, unreduced_basis_output)
 
     def get_subset(self, in_id, out_id):  # TODO, en faire une par
         """
