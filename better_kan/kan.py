@@ -1,7 +1,7 @@
 import torch
 import numpy as np
 import copy
-from .layers import RBFKANLayer, SplinesKANLayer
+from .layers import RBFKANLayer, SplinesKANLayer, ChebyshevKANLayer
 
 
 def invariant_input(inputs):
@@ -62,6 +62,27 @@ def build_splines_layers(
     for in_features, out_features, mask in zip(layers_hidden, layers_hidden[1:], masks):
         layers.append(
             SplinesKANLayer(
+                in_features,
+                out_features,
+                mask=mask,
+                **kwargs,
+            )
+        )
+    return layers
+
+
+def build_chebyshev_layers(
+    layers_hidden,
+    permutation_invariants=None,
+    **kwargs,
+):
+    masks = [None] * (len(layers_hidden) - 1)
+    if permutation_invariants is not None:
+        masks[0] = invariant_input(permutation_invariants)
+    layers = torch.nn.ModuleList()
+    for in_features, out_features, mask in zip(layers_hidden, layers_hidden[1:], masks):
+        layers.append(
+            ChebyshevKANLayer(
                 in_features,
                 out_features,
                 mask=mask,
