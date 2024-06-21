@@ -8,30 +8,30 @@ import numpy as np
 class BasisKANLayer(torch.nn.Module):
     def __init__(
         self,
-        input_dim,
-        output_dim,
+        in_features,
+        out_features,
         grid_size,
         n_basis_function,
         base_activation=torch.nn.SiLU,
-        mask=None,  # in_dim x input_dim array that contain 0 or 1 to suppress or duplicate parameters of an input
+        mask=None,  # in_dim x in_features array that contain 0 or 1 to suppress or duplicate parameters of an input
         scale_noise=0.1,
         scale_base=1.0,
         scale_basis=1.0,
         grid_alpha=0.02,
     ):
         super(BasisKANLayer, self).__init__()
-        self.input_dim = input_dim
-        self.output_dim = output_dim
+        self.in_features = in_features
+        self.out_features = out_features
         self.grid_size = grid_size
         self.n_basis_function = n_basis_function
 
         if mask is not None:
             self.reduced_in_dim = mask.shape[0]
-            assert mask.shape[1] == self.input_dim
+            assert mask.shape[1] == self.in_features
 
         else:
-            self.reduced_in_dim = self.input_dim
-            mask = torch.eye(self.input_dim)
+            self.reduced_in_dim = self.in_features
+            mask = torch.eye(self.in_features)
         self.register_buffer("mask", mask)
         self.register_buffer("inv_mask", torch.linalg.pinv(mask))
 
@@ -41,26 +41,26 @@ class BasisKANLayer(torch.nn.Module):
 
         self.grid_alpha = grid_alpha
 
-        self.base_scaler = torch.nn.Parameter(torch.ones(output_dim, self.reduced_in_dim) * self.scale_base)
-        self.basis_scaler = torch.nn.Parameter(torch.ones(output_dim, self.reduced_in_dim) * self.scale_basis)
+        self.base_scaler = torch.nn.Parameter(torch.ones(out_features, self.reduced_in_dim) * self.scale_base)
+        self.basis_scaler = torch.nn.Parameter(torch.ones(out_features, self.reduced_in_dim) * self.scale_basis)
 
-        self.bias = torch.nn.Parameter(torch.zeros(output_dim))
+        self.bias = torch.nn.Parameter(torch.zeros(out_features))
 
-        self.weights = torch.nn.Parameter(torch.Tensor(output_dim, n_basis_function, self.reduced_in_dim))
+        self.weights = torch.nn.Parameter(torch.Tensor(out_features, n_basis_function, self.reduced_in_dim))
 
         self.base_activation = base_activation()
 
     def reset_parameters(self):
         # torch.nn.init.kaiming_uniform_(self.base_weight, a=np.sqrt(5) * self.scale_base)
 
-        self.base_scaler.data = torch.ones(self.output_dim, self.reduced_in_dim) * self.scale_base
-        self.basis_scaler.data = torch.ones(self.output_dim, self.reduced_in_dim) * self.scale_basis
+        self.base_scaler.data = torch.ones(self.out_features, self.reduced_in_dim) * self.scale_base
+        self.basis_scaler.data = torch.ones(self.out_features, self.reduced_in_dim) * self.scale_basis
 
-        self.bias.data = torch.zeros(self.output_dim)
+        self.bias.data = torch.zeros(self.out_features)
 
         # Initialize random splines weight
         with torch.no_grad():
-            noise = (torch.rand(self.grid.shape[0], self.reduced_in_dim, self.output_dim) - 1 / 2) * self.scale_noise / self.n_basis_function
+            noise = (torch.rand(self.grid.shape[0], self.reduced_in_dim, self.out_features) - 1 / 2) * self.scale_noise / self.n_basis_function
             noise = torch.einsum("ijk,jl->ilk", noise, self.mask)
             self.scaled_weights = self.curve2coeff(self.grid, noise)
 
@@ -69,12 +69,12 @@ class BasisKANLayer(torch.nn.Module):
         Compute the B-spline bases for the given input tensor.
 
         Args:
-            x (torch.Tensor): Input tensor of shape (batch_size, input_dim).
+            x (torch.Tensor): Input tensor of shape (batch_size, in_features).
 
         Returns:
-            torch.Tensor: B-spline bases tensor of shape (batch_size, grid_size + spline_order, input_dim).
+            torch.Tensor: B-spline bases tensor of shape (batch_size, grid_size + spline_order, in_features).
         """
-        assert x.dim() == 2 and x.size(1) == self.input_dim
+        assert x.dim() == 2 and x.size(1) == self.in_features
 
         raise NotImplementedError
 
@@ -83,24 +83,24 @@ class BasisKANLayer(torch.nn.Module):
         Compute the coefficients of the curve that interpolates the given points.
 
         Args:
-            x (torch.Tensor): Input tensor of shape (batch_size, input_dim).
-            y (torch.Tensor): Output tensor of shape (batch_size, input_dim, output_dim).
+            x (torch.Tensor): Input tensor of shape (batch_size, in_features).
+            y (torch.Tensor): Output tensor of shape (batch_size, in_features, out_features).
 
         Returns:
-            torch.Tensor: Coefficients tensor of shape (output_dim, input_dim, grid_size + spline_order).
+            torch.Tensor: Coefficients tensor of shape (out_features, in_features, grid_size + spline_order).
         """
-        assert x.dim() == 2 and x.size(1) == self.input_dim
-        assert y.size() == (x.size(0), self.input_dim, self.output_dim)
+        assert x.dim() == 2 and x.size(1) == self.in_features
+        assert y.size() == (x.size(0), self.in_features, self.out_features)
 
-        A = self.basis(x).permute(2, 0, 1)  # (input_dim, batch_size, n_basis_function)
-        B = y.transpose(0, 1)  # (input_dim, batch_size, output_dim)
-        solution = torch.linalg.lstsq(A, B).solution  # (input_dim, n_basis_function, output_dim)  # There is a bug here ?? but why?? remove most permutation??
-        result = solution.permute(2, 1, 0)  # (output_dim, n_basis_function, input_dim)
+        A = self.basis(x).permute(2, 0, 1)  # (in_features, batch_size, n_basis_function)
+        B = y.transpose(0, 1)  # (in_features, batch_size, out_features)
+        solution = torch.linalg.lstsq(A, B).solution  # (in_features, n_basis_function, out_features)  # There is a bug here ?? but why?? remove most permutation??
+        result = solution.permute(2, 1, 0)  # (out_features, n_basis_function, in_features)
 
         assert result.size() == (
-            self.output_dim,
+            self.out_features,
             self.n_basis_function,
-            self.input_dim,
+            self.in_features,
         )
         return result.contiguous()
 
@@ -129,7 +129,7 @@ class BasisKANLayer(torch.nn.Module):
         self.max_vals = torch.max(x, dim=0).values
         self.l1_norm = torch.mean(torch.abs(out_acts), dim=0) / (self.max_vals - self.min_vals)  # out_dim x in_dim
         output = self.bias.unsqueeze(0) + torch.sum(out_acts, dim=2)
-        return output.view(*original_shape[:-1], self.output_dim)
+        return output.view(*original_shape[:-1], self.out_features)
 
     def activations_eval(self, x: torch.Tensor):
         """
@@ -137,8 +137,8 @@ class BasisKANLayer(torch.nn.Module):
         Slower evaluation but useful for plotting
         """
 
-        assert x.size(-1) == self.input_dim
-        x = x.view(-1, self.input_dim)
+        assert x.size(-1) == self.in_features
+        x = x.view(-1, self.in_features)
 
         base_output = self.base_activation(x).unsqueeze(1) * self.scaled_base_weight.unsqueeze(0)
 
@@ -151,7 +151,7 @@ class BasisKANLayer(torch.nn.Module):
 
     @torch.no_grad()
     def update_grid(self, x: torch.Tensor, margin=0.01):
-        assert x.dim() == 2 and x.size(1) == self.input_dim
+        assert x.dim() == 2 and x.size(1) == self.in_features
         batch = x.size(0)
         basis_values = self.basis(x)
         unreduced_basis_output = torch.sum(basis_values.unsqueeze(1) * self.scaled_weights.unsqueeze(0), dim=2)  # (batch, out, in)
@@ -230,8 +230,8 @@ class BasisKANLayer(torch.nn.Module):
 class RBFKANLayer(BasisKANLayer):
     def __init__(
         self,
-        input_dim,
-        output_dim,
+        in_features,
+        out_features,
         grid_size,
         base_activation=torch.nn.SiLU,
         mask=None,
@@ -242,14 +242,14 @@ class RBFKANLayer(BasisKANLayer):
         scale_basis=1.0,
         grid_alpha=0.02,  # Enforce less uniform and more adaptative grid in the update step
     ):
-        super(RBFKANLayer, self).__init__(input_dim, output_dim, grid_size, grid_size, base_activation, mask, scale_noise, scale_base, scale_basis, grid_alpha)
+        super(RBFKANLayer, self).__init__(in_features, out_features, grid_size, grid_size, base_activation, mask, scale_noise, scale_base, scale_basis, grid_alpha)
         self.optimize_grid = optimize_grid
         # Creating the parameters
         h = (grid_range[1] - grid_range[0]) / grid_size
-        grid = (torch.arange(grid_size) * h + grid_range[0]).expand(input_dim, -1).transpose(0, 1).contiguous()
+        grid = (torch.arange(grid_size) * h + grid_range[0]).expand(in_features, -1).transpose(0, 1).contiguous()
         self.grid = nn.Parameter(grid, requires_grad=optimize_grid)
         # If optimizing over sigmas
-        # self.sigmas = nn.Parameter(torch.Tensor(self.input_dim, grid_size), requires_grad=False)
+        # self.sigmas = nn.Parameter(torch.Tensor(self.in_features, grid_size), requires_grad=False)
         # Else sigmas are simple derivative of the grid
         sigmas = torch.empty_like(self.grid)  # nn.Parameter(torch.Tensor(grid_size,in_dim), requires_grad=False)
         self.register_buffer("sigmas", sigmas)
@@ -357,8 +357,8 @@ class RBFKANLayer(BasisKANLayer):
 class SplinesKANLayer(BasisKANLayer):
     def __init__(
         self,
-        input_dim,
-        output_dim,
+        in_features,
+        out_features,
         grid_size=5,
         mask=None,
         spline_order=3,
@@ -369,11 +369,11 @@ class SplinesKANLayer(BasisKANLayer):
         grid_alpha=0.02,
         grid_range=[-1, 1],
     ):
-        super(SplinesKANLayer, self).__init__(input_dim, output_dim, grid_size, grid_size + spline_order, base_activation, mask, scale_noise, scale_base, scale_basis, grid_alpha)
+        super(SplinesKANLayer, self).__init__(in_features, out_features, grid_size, grid_size + spline_order, base_activation, mask, scale_noise, scale_base, scale_basis, grid_alpha)
         self.spline_order = spline_order
 
         h = (grid_range[1] - grid_range[0]) / grid_size
-        grid = (torch.arange(-spline_order, grid_size + spline_order + 1) * h + grid_range[0]).expand(input_dim, -1).transpose(0, 1).contiguous()
+        grid = (torch.arange(-spline_order, grid_size + spline_order + 1) * h + grid_range[0]).expand(in_features, -1).transpose(0, 1).contiguous()
         self.register_buffer("grid", grid)
 
         self.reset_parameters()
@@ -383,14 +383,14 @@ class SplinesKANLayer(BasisKANLayer):
         Compute the B-spline bases for the given input tensor.
 
         Args:
-            x (torch.Tensor): Input tensor of shape (batch_size, input_dim).
+            x (torch.Tensor): Input tensor of shape (batch_size, in_features).
 
         Returns:
-            torch.Tensor: B-spline bases tensor of shape (batch_size, grid_size + spline_order, input_dim).
+            torch.Tensor: B-spline bases tensor of shape (batch_size, grid_size + spline_order, in_features).
         """
-        assert x.dim() == 2 and x.size(1) == self.input_dim
+        assert x.dim() == 2 and x.size(1) == self.in_features
 
-        grid: torch.Tensor = self.grid  # (grid_size + 2 * spline_order + 1, input_dim)
+        grid: torch.Tensor = self.grid  # (grid_size + 2 * spline_order + 1, in_features)
         x = x.unsqueeze(1)
         bases = ((x >= grid[:-1, :]) & (x < grid[1:, :])).to(x.dtype)
         for k in range(1, self.spline_order + 1):
@@ -399,13 +399,13 @@ class SplinesKANLayer(BasisKANLayer):
         assert bases.size() == (
             x.size(0),
             self.n_basis_function,
-            self.input_dim,
+            self.in_features,
         )
         return bases.contiguous()
 
     @torch.no_grad()
     def update_grid(self, x: torch.Tensor, margin=0.01):
-        assert x.dim() == 2 and x.size(1) == self.input_dim
+        assert x.dim() == 2 and x.size(1) == self.in_features
         batch = x.size(0)
 
         basis_values = self.basis(x)

@@ -38,11 +38,11 @@ def build_rbf_layers(
     if permutation_invariants is not None:
         masks[0] = invariant_input(permutation_invariants)
     layers = torch.nn.ModuleList()
-    for input_dim, output_dim, mask in zip(layers_hidden, layers_hidden[1:], masks):
+    for in_features, out_features, mask in zip(layers_hidden, layers_hidden[1:], masks):
         layers.append(
             RBFKANLayer(
-                input_dim,
-                output_dim,
+                in_features,
+                out_features,
                 mask=mask,
                 **kwargs,
             )
@@ -59,11 +59,11 @@ def build_splines_layers(
     if permutation_invariants is not None:
         masks[0] = invariant_input(permutation_invariants)
     layers = torch.nn.ModuleList()
-    for input_dim, output_dim, mask in zip(layers_hidden, layers_hidden[1:], masks):
+    for in_features, out_features, mask in zip(layers_hidden, layers_hidden[1:], masks):
         layers.append(
             SplinesKANLayer(
-                input_dim,
-                output_dim,
+                in_features,
+                out_features,
                 mask=mask,
                 **kwargs,
             )
@@ -76,7 +76,7 @@ class KAN(torch.nn.Module):
         super(KAN, self).__init__()
 
         self.depth = len(layers)
-        self.width = [layers[0].input_dim] + [la.output_dim for la in layers]
+        self.width = [layers[0].in_features] + [la.out_features for la in layers]
         self.layers = layers
 
     def forward(self, x: torch.Tensor, update_grid=False):
