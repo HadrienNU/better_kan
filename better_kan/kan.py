@@ -132,7 +132,7 @@ class KAN(torch.nn.Module):
                     overall_important = in_important * out_important
                 elif mode == "manual":
                     overall_important = torch.zeros(self.width[i + 1], dtype=torch.bool)
-                    overall_important[active_neurons_id[i + 1]] = True
+                    overall_important[active_neurons_id[i]] = True
                 active_neurons.append(torch.where(overall_important == True)[0])
             else:
                 active_neurons.append(list(range(self.width[i + 1])))

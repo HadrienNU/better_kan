@@ -180,15 +180,24 @@ class BasisKANLayer(torch.nn.Module):
         return regularize_activation * regularization_loss_activation + regularize_entropy * regularization_loss_entropy
 
     @torch.no_grad()
-    def initialize_grid_from_another(self, old_grid: torch.Tensor, acts_value_on_old_grid: torch.Tensor):  # Note ici , old_grid peut être n'importe quoi
+    def initialize_grid_from_parent(self, parent):
+        """
+        Get grid from a parent and compute grid and weights
+        """
+        old_grid = parent.grid
         assert old_grid.dim() == 2 and old_grid.size(1) == self.in_features
         x_sorted = torch.sort(old_grid, dim=0)[0]
         new_grid = x_sorted[torch.linspace(0, old_grid.size(0) - 1, self.grid.size(0), dtype=torch.int64, device=self.grid.device)]
-
         self.grid.copy_(new_grid)
-        self.scaled_weights = self.curve2coeff(old_grid, acts_value_on_old_grid)
 
-    def set_subset(self, newlayer, in_id, out_id):
+        # Et après ça il faut actualiser les poids
+        basis_values = parent.basis(self.grid)
+        unreduced_basis_output = torch.sum(basis_values.unsqueeze(1) * parent.scaled_weights.unsqueeze(0), dim=2)  # (batch, out, in)
+        unreduced_basis_output = unreduced_basis_output.transpose(1, 2)
+
+        self.scaled_weights = self.curve2coeff(self.grid, unreduced_basis_output)
+
+    def set_from_parent(self, parent, in_id, out_id):
         """
         set a smaller KANLayer from a larger KANLayer (used for pruning)
 
@@ -213,17 +222,12 @@ class BasisKANLayer(torch.nn.Module):
         >>> kanlayer_small.in_dim, kanlayer_small.out_dim
         (2, 3)
         """
-        # Il faut copier  grid/ mask
-        #  weights
-        #  base_scaler / basis_scaler
-        # Ce qui est nécessaire à la fonction de base
         # Gérer le mask
-
-        newlayer = type(self)()  #
-        newlayer.bias.data.copy_(self.layer.bias[out_id])
-        newlayer.base_scaler.data.copy_(self.base_scaler.bias[out_id][:, in_id])
-        newlayer.basis_scaler.data.copy_(self.basis_scaler.bias[out_id][:, in_id])
-        newlayer.weights.data.copy_(self.weights[out_id][:, :, in_id])
+        print(parent.bias.shape, self.bias.shape, out_id, self.out_features)
+        self.bias.data.copy_(parent.bias[out_id])
+        self.base_scaler.data.copy_(parent.base_scaler[out_id][:, in_id])
+        self.basis_scaler.data.copy_(parent.basis_scaler[out_id][:, in_id])
+        self.initialize_grid_from_parent(parent)  # This will set grid and weights for the basis
 
         # newlayer.mask.data.copy_()
 
@@ -337,14 +341,14 @@ class RBFKANLayer(BasisKANLayer):
         return phi
 
     def matern32_rbf(self, distances):
-        phi = (torch.ones_like(distances) + 3 ** 0.5 * distances) * torch.exp(-(3 ** 0.5) * distances)
+        phi = (torch.ones_like(distances) + 3**0.5 * distances) * torch.exp(-(3**0.5) * distances)
         return phi
 
     def matern52_rbf(self, distances):
-        phi = (torch.ones_like(distances) + 5 ** 0.5 * distances + (5 / 3) * distances.pow(2)) * torch.exp(-(5 ** 0.5) * distances)
+        phi = (torch.ones_like(distances) + 5**0.5 * distances + (5 / 3) * distances.pow(2)) * torch.exp(-(5**0.5) * distances)
         return phi
 
-    def get_subset(self, in_id, out_id):  # TODO, en faire une par
+    def get_subset(self, in_id, out_id, new_grid_size=None):
         """
         get a smaller KANLayer from a larger KANLayer (used for pruning)
 
@@ -366,11 +370,25 @@ class RBFKANLayer(BasisKANLayer):
         >>> kanlayer_small.in_dim, kanlayer_small.out_dim
         (2, 3)
         """
-        newlayer = KANLayer(len(in_id), len(out_id), self.num, self.k, base_fun=self.base_fun)
-        newlayer.set_subset(in_id, out_id)  # Ca créer tous les trucs de base
-        # Il faut copier  grid/ mask
-        # Ce qui est nécessaire à la fonction de base
-        # On copie ici les trucs en plus
+
+        newlayer = RBFKANLayer(
+            len(in_id),
+            len(out_id),
+            grid_size=self.grid_size if new_grid_size is None else new_grid_size,
+            # mask=???,  # A redéfinir
+            optimize_grid=self.optimize_grid,
+            scale_noise=self.scale_noise,
+            scale_base=self.scale_base,
+            scale_basis=self.scale_basis,
+            base_activation=type(self.base_activation),
+            grid_alpha=self.grid_alpha,
+            grid_range=self.grid_range,
+            sb_trainable=self.base_scaler.requires_grad,
+            sbasis_trainable=self.basis_scaler.requires_grad,
+            bias_trainable=self.bias.requires_grad,
+        )
+        newlayer.set_from_parent(self, in_id, out_id)  # Ca créer tous les trucs de base
+        newlayer.sigmas.data.copy_(self.sigmas[:, in_id])
         return newlayer
 
 
@@ -507,10 +525,5 @@ class SplinesKANLayer(BasisKANLayer):
             sbasis_trainable=self.basis_scaler.requires_grad,
             bias_trainable=self.bias.requires_grad,
         )
-        newlayer.set_subset(newlayer, in_id, out_id)  # Ca créer tous les trucs de base
-
-        newlayer.initialize_grid_from_another(self.grid[:, in_id])
-        # Il faut copier  grid/ mask
-        # Ce qui est nécessaire à la fonction de base
-        # On copie ici les trucs en plus
+        newlayer.set_from_parent(self, in_id, out_id)
         return newlayer
