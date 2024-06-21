@@ -32,13 +32,14 @@ plt.yscale("log")
 
 
 plot(model, title="KAN_after training", tick=False)
-
-
-new_model = model.prune()
-
-new_model(dataset["train_input"])
-
-
-plot(new_model, title="KAN after pruning", tick=False)
-
-plt.show()
+print(model.state_dict())
+#
+#
+# new_model = model.prune()
+#
+# new_model(dataset["train_input"])
+#
+#
+# plot(new_model, title="KAN after pruning", tick=False)
+#
+# plt.show()

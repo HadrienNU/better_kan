@@ -179,12 +179,14 @@ class BasisKANLayer(torch.nn.Module):
         regularization_loss_entropy = -torch.sum(p * p.log())
         return regularize_activation * regularization_loss_activation + regularize_entropy * regularization_loss_entropy
 
-    def change_grid(self, new_grid):
-        """
-        TODO: Allow for changes in num of grid by getting the parameters that fit the best the current values of the activation functions
-        C'est comme update grid mais en changeant les dimensions des array internes
-        """
-        pass
+    @torch.no_grad()
+    def initialize_grid_from_another(self, old_grid: torch.Tensor, acts_value_on_old_grid: torch.Tensor):  # Note ici , old_grid peut être n'importe quoi
+        assert old_grid.dim() == 2 and old_grid.size(1) == self.in_features
+        x_sorted = torch.sort(old_grid, dim=0)[0]
+        new_grid = x_sorted[torch.linspace(0, old_grid.size(0) - 1, self.grid.size(0), dtype=torch.int64, device=self.grid.device)]
+
+        self.grid.copy_(new_grid)
+        self.scaled_weights = self.curve2coeff(old_grid, acts_value_on_old_grid)
 
     def set_subset(self, newlayer, in_id, out_id):
         """
@@ -466,7 +468,7 @@ class SplinesKANLayer(BasisKANLayer):
         self.grid.copy_(grid)
         self.scaled_weights = self.curve2coeff(x, unreduced_basis_output)
 
-    def get_subset(self, in_id, out_id):  # TODO, en faire une par
+    def get_subset(self, in_id, out_id, new_grid_size=None):  # TODO, en faire une par
         """
         get a smaller KANLayer from a larger KANLayer (used for pruning)
 
@@ -489,8 +491,25 @@ class SplinesKANLayer(BasisKANLayer):
         (2, 3)
         """
 
-        newlayer = SplinesKANLayer(len(in_id), len(out_id), self.num, self.k, base_fun=self.base_fun)
+        newlayer = SplinesKANLayer(
+            len(in_id),
+            len(out_id),
+            grid_size=self.grid_size if new_grid_size is None else new_grid_size,
+            # mask=???,  # A redéfinir
+            spline_order=self.spline_order,
+            scale_noise=self.scale_noise,
+            scale_base=self.scale_base,
+            scale_basis=self.scale_basis,
+            base_activation=type(self.base_activation),
+            grid_alpha=self.grid_alpha,
+            grid_range=[-1, 1],  # On s'en fout on va la redéfinir
+            sb_trainable=self.base_scaler.requires_grad,
+            sbasis_trainable=self.basis_scaler.requires_grad,
+            bias_trainable=self.bias.requires_grad,
+        )
         newlayer.set_subset(newlayer, in_id, out_id)  # Ca créer tous les trucs de base
+
+        newlayer.initialize_grid_from_another(self.grid[:, in_id])
         # Il faut copier  grid/ mask
         # Ce qui est nécessaire à la fonction de base
         # On copie ici les trucs en plus
