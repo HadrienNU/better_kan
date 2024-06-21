@@ -162,7 +162,7 @@ def train(
 
 def plot(kan, beta=3, mask=False, scale=1.0, tick=False, in_vars=None, out_vars=None, title=None, ax=None):
     """
-    plot KAN. Before plot, kan.get_stats(x) should be run on a typical input to collect statistics on activations functions
+    plot KAN. Before plot, kan(x) should be run on a typical input to collect statistics on activations functions.
 
     Args:
     -----

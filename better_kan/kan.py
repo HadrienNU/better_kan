@@ -87,3 +87,54 @@ class KAN(torch.nn.Module):
 
     def regularization_loss(self, regularize_activation=1.0, regularize_entropy=1.0):
         return sum(layer.regularization_loss(regularize_activation, regularize_entropy) for layer in self.layers)
+
+    def prune(self, threshold=1e-2, mode="auto", active_neurons_id=None):
+        """
+        pruning KAN on the node level. If a node has small incoming or outgoing connection, it will be pruned away.
+
+        Current KAN is unchanged bu it return a new pruned model.
+
+        Args:
+        -----
+            threshold : float
+                the threshold used to determine whether a node is small enough
+            mode : str
+                "auto" or "manual". If "auto", the thresold will be used to automatically prune away nodes. If "manual", active_neuron_id is needed to specify which neurons are kept (others are thrown away).
+            active_neuron_id : list of id lists
+                For example, [[0,1],[0,2,3]] means keeping the 0/1 neuron in the 1st hidden layer and the 0/2/3 neuron in the 2nd hidden layer. Pruning input and output neurons is not supported yet.
+
+        Returns:
+        --------
+            model2 : KAN
+                pruned model
+
+        Example
+        -------
+        >>> # for more interactive examples, please see demos
+        >>> from utils import create_dataset
+        >>> model = KAN(width=[2,5,1], grid=5, k=3, noise_scale=0.1, seed=0)
+        >>> f = lambda x: torch.exp(torch.sin(torch.pi*x[:,[0]]) + x[:,[1]]**2)
+        >>> dataset = create_dataset(f, n_var=2)
+        >>> train(model,dataset, opt='LBFGS', steps=50, lamb=0.01);
+        >>> pruned_mode=model.prune()
+        >>> pruned_model(dataset["test_input"])
+        >>> plot(pruned_mode)
+        """
+
+        active_neurons = [list(range(self.width[0]))]
+        for i in range(len(self.layers) - 1):  # Not considering first and last layers
+            if mode == "auto":
+                in_important = torch.max(self.layers[i].l1_norm, dim=1)[0] > threshold
+                out_important = torch.max(self.layers[i + 1].l1_norm, dim=0)[0] > threshold
+                overall_important = in_important * out_important
+            elif mode == "manual":
+                overall_important = torch.zeros(self.width[i + 1], dtype=torch.bool)
+                overall_important[active_neurons_id[i + 1]] = True
+            active_neurons.append(torch.where(overall_important == True)[0])
+        active_neurons.append(list(range(self.width[-1])))
+
+        new_layers = torch.nn.ModuleList()
+        for i in range(len(self.width) - 1):
+            new_layers.append(self.layers[i].get_subset(active_neurons[i], active_neurons[i + 1]))
+
+        return KAN(new_layers)

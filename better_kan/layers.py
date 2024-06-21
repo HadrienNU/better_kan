@@ -127,7 +127,7 @@ class BasisKANLayer(torch.nn.Module):
         # Somes statistics for regularisation and plot
         self.min_vals = torch.min(x, dim=0).values
         self.max_vals = torch.max(x, dim=0).values
-        self.l1_norm = torch.mean(torch.abs(out_acts), dim=0) / (self.max_vals - self.min_vals)
+        self.l1_norm = torch.mean(torch.abs(out_acts), dim=0) / (self.max_vals - self.min_vals)  # out_dim x in_dim
         output = self.bias.unsqueeze(0) + torch.sum(out_acts, dim=2)
         return output.view(*original_shape[:-1], self.output_dim)
 

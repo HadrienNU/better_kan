@@ -10,13 +10,13 @@ Contrary to efficient-kan, it use the original L1 regularization of pykan withou
 
 ## Note on RBF
 
-There is some fast implementations of KAN that include RBF, but there are not equivalent to the original paper when there is more than one input. Indeed, most RBF implementation use for node  $q$, inputs $x_p$ and centers $c_i$
+There is some fast implementations of KAN that include RBF, but there are not equivalent to the original paper when there is more than one input. Indeed, most RBF implementation use for node $q$, inputs $x_p$ and centers $c_i$
 
 $$ \sum_i c_{q,i} \phi\left(\sqrt{\sum_p (x_p-c_i)^2 }\right)  $$
 
 whereas the correct formule should be
 
-$$ \sum_i \sum_p c_{q,i} \phi \left(  |x_p-c_i|\right)  .$$
+$$ \sum_p  \sum_i  c_{q,i} \phi \left(  |x_p-c_i|\right)  .$$
 
 The last formula is the one implemented here.
 
@@ -33,5 +33,5 @@ The splines implementation is not as fast as efficient-kan but still allow for s
 |mlp-gpu                    |      0.28 ms  |      0.60 ms  |      0.03 GB  |      0.03 GB  |         6001  |                  6001
 |rbf-better_kan-cpu         |      4.21 ms  |      3.74 ms  |       nan GB  |       nan GB  |         5265  |                  4201
 |rbf-better_kan-gpu         |      1.48 ms  |      1.32 ms  |      0.04 GB  |      0.04 GB  |         5265  |                  4201
-|splines-better_-kan-cpu    |     13.51 ms  |     18.50 ms  |       nan GB  |       nan GB  |         4651  |                  4651
+|splines-better_kan-cpu    |     13.51 ms  |     18.50 ms  |       nan GB  |       nan GB  |         4651  |                  4651
 |splines-better_kan-gpu     |      3.75 ms  |      5.73 ms  |      0.07 GB  |      0.07 GB  |         4651  |                  4651
