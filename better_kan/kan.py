@@ -47,7 +47,7 @@ def build_rbf_layers(
                 **kwargs,
             )
         )
-    return KAN(layers)
+    return layers
 
 
 def build_splines_layers(
@@ -68,7 +68,7 @@ def build_splines_layers(
                 **kwargs,
             )
         )
-    return KAN(layers)
+    return layers
 
 
 class KAN(torch.nn.Module):
@@ -82,7 +82,8 @@ class KAN(torch.nn.Module):
     def forward(self, x: torch.Tensor, update_grid=False):
         for layer in self.layers:
             if update_grid:
-                layer.update_grid(x)
+                if hasattr(layer, "update_grid"):
+                    layer.update_grid(x)
             x = layer(x)
         return x
 

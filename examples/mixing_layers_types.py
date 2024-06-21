@@ -1,16 +1,22 @@
 import torch
 import torch.nn as nn
-import numpy as np
 import matplotlib.pyplot as plt
 
-from better_kan import KAN, build_rbf_layers, create_dataset, plot, train
+from better_kan import KAN, build_rbf_layers, build_splines_layers, create_dataset, plot, train
 
 
-model = KAN(build_rbf_layers([2, 5, 1], grid_size=5))
+layers = build_rbf_layers([2, 3], grid_size=4)
 
+mlp_layer = nn.Sequential(nn.Linear(3, 4), nn.ELU())
+mlp_layer.in_features = 3  # The added layer should have an in_features and out_features attribute
+mlp_layer.out_features = 4
+layers.append(mlp_layer)
 
-f = lambda x: torch.exp(torch.sin(torch.pi * x[:, [0]]) + x[:, [1]] ** 2)
-dataset = create_dataset(f, n_var=2)
+layers.extend(build_splines_layers([4, 1], grid_size=3))
+
+model = KAN(layers)
+
+dataset = create_dataset(lambda x: torch.exp(torch.sin(torch.pi * x[:, [0]]) + x[:, [1]] ** 2), n_var=2)
 print(dataset["train_input"].shape, dataset["train_label"].shape)
 
 
@@ -32,13 +38,4 @@ plt.yscale("log")
 
 
 plot(model, title="KAN_after training", tick=False)
-
-
-new_model = model.prune()
-
-new_model(dataset["train_input"])
-
-
-plot(new_model, title="KAN after pruning", tick=False)
-
 plt.show()

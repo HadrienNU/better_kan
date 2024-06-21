@@ -3,22 +3,15 @@ import torch.nn as nn
 import numpy as np
 import matplotlib.pyplot as plt
 
-from better_kan import build_rbf_layers, create_dataset, plot, train
+from better_kan import KAN, build_rbf_layers, create_dataset, plot, train
 
 # Build model with some permutation invariant input
 
-# For now bigger model fail quickly
-# model = build_rbf_layers([7, 15, 4, 1], grid_size=5, permutation_invariants=[0, 1, 1, 1, 1, 2, 2])  #
+model = KAN(build_rbf_layers([7, 15, 4, 1], grid_size=5, permutation_invariants=[0, 1, 1, 1, 1, 2, 2]))  #
 
 
-# f = lambda x: 1 / (1 + torch.exp(-(torch.sin(torch.pi * x[:, [0]]) + x[:, [1]] ** 2 + x[:, [2]] ** 2 + x[:, [3]] ** 2 + x[:, [4]] ** 2 - (x[:, [5]] + x[:, [6]]) ** 0.5)))
-# dataset = create_dataset(f, n_var=7)
-
-model = build_rbf_layers([3, 7, 4, 1], grid_size=5, permutation_invariants=[0, 1, 1])  #
-
-
-f = lambda x: 1.0 / (1.0 + torch.exp(-(torch.sin(torch.pi * x[:, [0]]) + x[:, [1]] ** 2 + x[:, [2]] ** 2)))
-dataset = create_dataset(f, n_var=3)
+f = lambda x: 1 / (1 + torch.exp(-(torch.sin(torch.pi * x[:, [0]]) + x[:, [1]] ** 2 + x[:, [2]] ** 2 + x[:, [3]] ** 2 + x[:, [4]] ** 2 - (x[:, [5]] - x[:, [6]]).abs() ** 0.5)))
+dataset = create_dataset(f, n_var=7)
 
 print(dataset["train_input"].shape, dataset["train_label"].shape)
 

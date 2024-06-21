@@ -18,6 +18,9 @@ class BasisKANLayer(torch.nn.Module):
         scale_base=1.0,
         scale_basis=1.0,
         grid_alpha=0.02,
+        sb_trainable=True,
+        sbasis_trainable=True,
+        bias_trainable=True,
     ):
         super(BasisKANLayer, self).__init__()
         self.in_features = in_features
@@ -41,10 +44,10 @@ class BasisKANLayer(torch.nn.Module):
 
         self.grid_alpha = grid_alpha
 
-        self.base_scaler = torch.nn.Parameter(torch.ones(out_features, self.reduced_in_dim) * self.scale_base)
-        self.basis_scaler = torch.nn.Parameter(torch.ones(out_features, self.reduced_in_dim) * self.scale_basis)
+        self.base_scaler = torch.nn.Parameter(torch.ones(out_features, self.reduced_in_dim) * self.scale_base, requires_grad=sb_trainable)
+        self.basis_scaler = torch.nn.Parameter(torch.ones(out_features, self.reduced_in_dim) * self.scale_basis, requires_grad=sbasis_trainable)
 
-        self.bias = torch.nn.Parameter(torch.zeros(out_features))
+        self.bias = torch.nn.Parameter(torch.zeros(out_features), requires_grad=bias_trainable)
 
         self.weights = torch.nn.Parameter(torch.Tensor(out_features, n_basis_function, self.reduced_in_dim))
 
@@ -183,12 +186,15 @@ class BasisKANLayer(torch.nn.Module):
         """
         pass
 
-    def set_subset(self, newlayer, in_id, out_id):  # TODO, en faire une par
+    def set_subset(self, newlayer, in_id, out_id):
         """
-        get a smaller KANLayer from a larger KANLayer (used for pruning)
+        set a smaller KANLayer from a larger KANLayer (used for pruning)
+
 
         Args:
         -----
+            newlayer : kan_layer
+                An input KANLayer to be set as a subset of this one
             in_id : list
                 id of selected input neurons
             out_id : list
@@ -205,25 +211,20 @@ class BasisKANLayer(torch.nn.Module):
         >>> kanlayer_small.in_dim, kanlayer_small.out_dim
         (2, 3)
         """
-        newlayer = KANLayer(len(in_id), len(out_id), self.num, self.k, base_fun=self.base_fun)
         # Il faut copier  grid/ mask
         #  weights
         #  base_scaler / basis_scaler
         # Ce qui est nécessaire à la fonction de base
-        newlayer.grid.data = self.grid.reshape(self.out_dim, self.in_dim, spb.num + 1)[out_id][:, in_id].reshape(-1, spb.num + 1)
-        newlayer.weights.data = self.coef.reshape(self.out_dim, self.in_dim, spb.coef.shape[1])[out_id][:, in_id].reshape(-1, spb.coef.shape[1])
-        newlayer.scale_base.data = self.scale_base.reshape(self.out_dim, self.in_dim)[out_id][:, in_id].reshape(
-            -1,
-        )
-        newlayer.scale_sp.data = self.scale_sp.reshape(self.out_dim, self.in_dim)[out_id][:, in_id].reshape(
-            -1,
-        )
-        newlayer.mask.data = self.mask.reshape(self.out_dim, self.in_dim)[out_id][:, in_id].reshape(
-            -1,
-        )
+        # Gérer le mask
 
-        newlayer.in_dim = len(in_id)
-        newlayer.out_dim = len(out_id)
+        newlayer = type(self)()  #
+        newlayer.bias.data.copy_(self.layer.bias[out_id])
+        newlayer.base_scaler.data.copy_(self.base_scaler.bias[out_id][:, in_id])
+        newlayer.basis_scaler.data.copy_(self.basis_scaler.bias[out_id][:, in_id])
+        newlayer.weights.data.copy_(self.weights[out_id][:, :, in_id])
+
+        # newlayer.mask.data.copy_()
+
         return newlayer
 
 
@@ -241,8 +242,25 @@ class RBFKANLayer(BasisKANLayer):
         scale_base=1.0,
         scale_basis=1.0,
         grid_alpha=0.02,  # Enforce less uniform and more adaptative grid in the update step
+        sb_trainable=True,
+        sbasis_trainable=True,
+        bias_trainable=True,
     ):
-        super(RBFKANLayer, self).__init__(in_features, out_features, grid_size, grid_size, base_activation, mask, scale_noise, scale_base, scale_basis, grid_alpha)
+        super(RBFKANLayer, self).__init__(
+            in_features,
+            out_features,
+            grid_size,
+            grid_size,
+            base_activation,
+            mask,
+            scale_noise,
+            scale_base,
+            scale_basis,
+            grid_alpha,
+            sb_trainable,
+            sbasis_trainable,
+            bias_trainable,
+        )
         self.optimize_grid = optimize_grid
         # Creating the parameters
         h = (grid_range[1] - grid_range[0]) / grid_size
@@ -317,11 +335,11 @@ class RBFKANLayer(BasisKANLayer):
         return phi
 
     def matern32_rbf(self, distances):
-        phi = (torch.ones_like(distances) + 3**0.5 * distances) * torch.exp(-(3**0.5) * distances)
+        phi = (torch.ones_like(distances) + 3 ** 0.5 * distances) * torch.exp(-(3 ** 0.5) * distances)
         return phi
 
     def matern52_rbf(self, distances):
-        phi = (torch.ones_like(distances) + 5**0.5 * distances + (5 / 3) * distances.pow(2)) * torch.exp(-(5**0.5) * distances)
+        phi = (torch.ones_like(distances) + 5 ** 0.5 * distances + (5 / 3) * distances.pow(2)) * torch.exp(-(5 ** 0.5) * distances)
         return phi
 
     def get_subset(self, in_id, out_id):  # TODO, en faire une par
@@ -368,8 +386,25 @@ class SplinesKANLayer(BasisKANLayer):
         base_activation=torch.nn.SiLU,
         grid_alpha=0.02,
         grid_range=[-1, 1],
+        sb_trainable=True,
+        sbasis_trainable=True,
+        bias_trainable=True,
     ):
-        super(SplinesKANLayer, self).__init__(in_features, out_features, grid_size, grid_size + spline_order, base_activation, mask, scale_noise, scale_base, scale_basis, grid_alpha)
+        super(SplinesKANLayer, self).__init__(
+            in_features,
+            out_features,
+            grid_size,
+            grid_size + spline_order,
+            base_activation,
+            mask,
+            scale_noise,
+            scale_base,
+            scale_basis,
+            grid_alpha,
+            sb_trainable,
+            sbasis_trainable,
+            bias_trainable,
+        )
         self.spline_order = spline_order
 
         h = (grid_range[1] - grid_range[0]) / grid_size
@@ -416,7 +451,7 @@ class SplinesKANLayer(BasisKANLayer):
         grid_adaptive = x_sorted[torch.linspace(0, batch - 1, self.grid_size + 1, dtype=torch.int64, device=x.device)]
 
         uniform_step = (x_sorted[-1] - x_sorted[0] + 2 * margin) / self.grid_size
-        grid_uniform = torch.arange(self.grid_size + 1, dtype=torch.float32, device=x.device).unsqueeze(1) * uniform_step + x_sorted[0] - margin
+        grid_uniform = torch.arange(self.grid_size + 1, dtype=x.dtype, device=x.device).unsqueeze(1) * uniform_step + x_sorted[0] - margin
 
         grid = self.grid_alpha * grid_uniform + (1 - self.grid_alpha) * grid_adaptive
         grid = torch.concatenate(
@@ -453,8 +488,9 @@ class SplinesKANLayer(BasisKANLayer):
         >>> kanlayer_small.in_dim, kanlayer_small.out_dim
         (2, 3)
         """
+
         newlayer = SplinesKANLayer(len(in_id), len(out_id), self.num, self.k, base_fun=self.base_fun)
-        newlayer.set_subset(in_id, out_id)  # Ca créer tous les trucs de base
+        newlayer.set_subset(newlayer, in_id, out_id)  # Ca créer tous les trucs de base
         # Il faut copier  grid/ mask
         # Ce qui est nécessaire à la fonction de base
         # On copie ici les trucs en plus

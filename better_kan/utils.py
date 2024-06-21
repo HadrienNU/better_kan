@@ -1,7 +1,6 @@
 import torch
 import numpy as np
 from tqdm import tqdm
-from torch.utils.data import Dataset
 
 
 def train(
@@ -237,129 +236,48 @@ def plot(kan, beta=3, mask=False, scale=1.0, tick=False, in_vars=None, out_vars=
 
     # Add insert plot of each activation functions
     for la in range(depth):
-        alpha = score2alpha(kan.layers[la].l1_norm.cpu().detach().numpy())
-        # Take for ranges, either the extremal of the centers or the min/max of the data
-        ranges = [torch.linspace(kan.layers[la].min_vals[d], kan.layers[la].max_vals[d], 150) for d in range(kan.width[la])]
-        x_in = torch.stack(ranges, dim=1)
-        acts_vals = kan.layers[la].activations_eval(x_in).cpu().detach().numpy()
-        x_ranges = x_in.cpu().detach().numpy()
-        for i in range(kan.width[la]):
-            for j in range(kan.width[la + 1]):
-                u, v = (la, i), (la + 1, j)
-                nx.draw_networkx_edges(G, pos, edgelist=[(u, v)], alpha=alpha[j, i], ax=ax)
+        if hasattr(kan.layers[la], "l1_norm"):
+            alpha = score2alpha(kan.layers[la].l1_norm.cpu().detach().numpy())
+            # Take for ranges, either the extremal of the centers or the min/max of the data
+            ranges = [torch.linspace(kan.layers[la].min_vals[d], kan.layers[la].max_vals[d], 150) for d in range(kan.width[la])]
+            x_in = torch.stack(ranges, dim=1)
+            acts_vals = kan.layers[la].activations_eval(x_in).cpu().detach().numpy()
+            x_ranges = x_in.cpu().detach().numpy()
+            for i in range(kan.width[la]):
+                for j in range(kan.width[la + 1]):
+                    u, v = (la, i), (la + 1, j)
+                    nx.draw_networkx_edges(G, pos, edgelist=[(u, v)], alpha=alpha[j, i], ax=ax)
 
-                # Compute central position of the edge
-                x = (pos[u][0] + pos[v][0]) / 2
-                y = (pos[u][1] + pos[v][1]) / 2
+                    # Compute central position of the edge
+                    x = (pos[u][0] + pos[v][0]) / 2
+                    y = (pos[u][1] + pos[v][1]) / 2
 
-                width = scale * 0.1
-                height = scale * 0.1
+                    width = scale * 0.1
+                    height = scale * 0.1
 
-                # Créer un axe en insert
-                inset_ax = ax.inset_axes([x - 0.5 * width, y - 0.5 * height, width, height], transform=ax.transData, box_aspect=1.0)
-                if tick is False:
-                    inset_ax.set_xticks([])
-                    inset_ax.set_yticks([])
-                else:
-                    inset_ax.tick_params(axis="both", which="both", length=0)  # Rendre les ticks invisibles
+                    # Créer un axe en insert
+                    inset_ax = ax.inset_axes([x - 0.5 * width, y - 0.5 * height, width, height], transform=ax.transData, box_aspect=1.0)
+                    if tick is False:
+                        inset_ax.set_xticks([])
+                        inset_ax.set_yticks([])
+                    else:
+                        inset_ax.tick_params(axis="both", which="both", length=0)  # Rendre les ticks invisibles
 
-                    for label in inset_ax.get_xticklabels() + inset_ax.get_yticklabels():
-                        label.set_alpha(alpha[j, i])
+                        for label in inset_ax.get_xticklabels() + inset_ax.get_yticklabels():
+                            label.set_alpha(alpha[j, i])
 
-                inset_ax.plot(x_ranges[:, i], acts_vals[:, j, i], "-", color="red", alpha=alpha[j, i])
-                for spine in inset_ax.spines.values():
-                    spine.set_alpha(alpha[j, i])
-                inset_ax.patch.set_alpha(alpha[j, i])
+                    inset_ax.plot(x_ranges[:, i], acts_vals[:, j, i], "-", color="red", alpha=alpha[j, i])
+                    for spine in inset_ax.spines.values():
+                        spine.set_alpha(alpha[j, i])
+                    inset_ax.patch.set_alpha(alpha[j, i])
+        else:
+            for i in range(kan.width[la]):
+                for j in range(kan.width[la + 1]):
+                    u, v = (la, i), (la + 1, j)
+                    nx.draw_networkx_edges(G, pos, edgelist=[(u, v)], ax=ax)
 
     if title is not None:
         ax.set_title(title)
-
-
-class SimpleDataset(Dataset):
-    def __init__(self, data, labels):
-        self.data = data
-        self.labels = labels
-
-    def __len__(self):
-        return len(self.data)
-
-    def __getitem__(self, idx):
-        return self.data[idx], self.labels[idx]
-
-
-def create_lightning_dataset(f, n_var=2, ranges=[-1, 1], train_num=1000, normalize_input=False, normalize_label=False, seed=0):
-    """
-    create dataset
-
-    Args:
-    -----
-        f : function
-            the symbolic formula used to create the synthetic dataset
-        ranges : list or np.array; shape (2,) or (n_var, 2)
-            the range of input variables. Default: [-1,1].
-        train_num : int
-            the number of training samples. Default: 1000.
-        test_num : int
-            the number of test samples. Default: 1000.
-        normalize_input : bool
-            If True, apply normalization to inputs. Default: False.
-        normalize_label : bool
-            If True, apply normalization to labels. Default: False.
-        device : str
-            device. Default: 'cpu'.
-        seed : int
-            random seed. Default: 0.
-
-    Returns:
-    --------
-        dataset : dic
-            Train/test inputs/labels are dataset['train_input'], dataset['train_label'],
-                        dataset['test_input'], dataset['test_label']
-
-    Example
-    -------
-    >>> f = lambda x: torch.exp(torch.sin(torch.pi*x[:,[0]]) + x[:,[1]]**2)
-    >>> dataset = create_dataset(f, n_var=2, train_num=100)
-    >>> dataset['train_input'].shape
-    torch.Size([100, 2])
-    """
-
-    np.random.seed(seed)
-    torch.manual_seed(seed)
-
-    if len(np.array(ranges).shape) == 1:
-        ranges = np.array(ranges * n_var).reshape(n_var, 2)
-    else:
-        ranges = np.array(ranges)
-
-    train_input = torch.zeros(train_num, n_var)
-    for i in range(n_var):
-        train_input[:, i] = (
-            torch.rand(
-                train_num,
-            )
-            * (ranges[i, 1] - ranges[i, 0])
-            + ranges[i, 0]
-        )
-
-    train_label = f(train_input)
-
-    def normalize(data, mean, std):
-        return (data - mean) / std
-
-    if normalize_input is True:
-        mean_input = torch.mean(train_input, dim=0, keepdim=True)
-        std_input = torch.std(train_input, dim=0, keepdim=True)
-        train_input = normalize(train_input, mean_input, std_input)
-
-    if normalize_label is True:
-        mean_label = torch.mean(train_label, dim=0, keepdim=True)
-        std_label = torch.std(train_label, dim=0, keepdim=True)
-        train_label = normalize(train_label, mean_label, std_label)
-
-    dataset = SimpleDataset(train_input, train_label)
-
-    return dataset
 
 
 def create_dataset(f, n_var=2, ranges=[-1, 1], train_num=1000, test_num=1000, normalize_input=False, normalize_label=False, seed=0):

@@ -3,7 +3,7 @@ import torch.nn as nn
 import numpy as np
 import matplotlib.pyplot as plt
 
-from better_kan import build_rbf_layers, train
+from better_kan import KAN, build_rbf_layers, train
 
 
 datasets = []
@@ -27,12 +27,7 @@ y_sample = 0.0
 for center in x_centers:
     y_sample += torch.exp(-((x_sample - center) ** 2) * 300)
 
-
-plt.plot(x_grid.detach().numpy(), y.detach().numpy())
-plt.scatter(x_sample.detach().numpy(), y_sample.detach().numpy())
-
-
-plt.subplots(1, 5, figsize=(15, 2))
+plt.subplots(1, 5, figsize=(15, 2), num="Input data")
 plt.subplots_adjust(wspace=0, hspace=0)
 
 for i in range(1, 6):
@@ -44,7 +39,7 @@ for i in range(1, 6):
     plt.ylim(-1, 2)
 
 
-model = build_rbf_layers([1, 1], grid_size=200)  # , bias_trainable=False, sp_trainable=False, sb_trainable=False  Annuler ceux-là
+model = KAN(build_rbf_layers([1, 1], grid_size=200, bias_trainable=False, sbasis_trainable=False, sb_trainable=False))
 
 ys = []
 for group_id in range(n_peak):
@@ -56,7 +51,7 @@ for group_id in range(n_peak):
     train(model, dataset, opt="LBFGS", steps=100, update_grid=False)
     y_pred = model(x_grid[:, None])
     ys.append(y_pred.detach().numpy()[:, 0])
-plt.subplots(1, 5, figsize=(15, 2))
+plt.subplots(1, 5, figsize=(15, 2), num="Fitted")
 plt.subplots_adjust(wspace=0, hspace=0)
 
 for i in range(1, 6):
