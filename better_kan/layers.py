@@ -109,7 +109,6 @@ class BasisKANLayer(torch.nn.Module):
 
     @property
     def scaled_weights(self):
-        # return self.weights  # * (self.basis_scaler).unsqueeze(1)
         return torch.matmul(self.weights * (self.basis_scaler).unsqueeze(1), self.mask)
 
     @scaled_weights.setter
@@ -118,7 +117,6 @@ class BasisKANLayer(torch.nn.Module):
 
     @property
     def scaled_base_weight(self):
-        # return self.base_scaler
         return torch.matmul(self.base_scaler, self.mask)
 
     @scaled_base_weight.setter
@@ -141,7 +139,7 @@ class BasisKANLayer(torch.nn.Module):
         # return output
 
         original_shape = x.shape
-        out_acts = self.activations_eval(x)  # C'est un peu plus lent mais ça permet qd même de calculer ce qu'on veut
+        out_acts = self.activations_eval(x)
         # Somes statistics for regularisation and plot
         self.min_vals = torch.min(x, dim=0).values
         self.max_vals = torch.max(x, dim=0).values
@@ -159,8 +157,8 @@ class BasisKANLayer(torch.nn.Module):
         x = x.view(-1, self.in_features)
 
         base_output = self.base_activation(x).unsqueeze(1) * self.scaled_base_weight.unsqueeze(0)
-        basis_values = self.basis(x)  # Here is the bottleneck of performance
-        acts_output = torch.einsum("xbi,obi->xoi", basis_values, self.scaled_weights)  # Here is the bottleneck of performance
+
+        acts_output = torch.einsum("xbi,obi->xoi", self.basis(x), self.scaled_weights)  # Here is the bottleneck of performance
 
         output = base_output + acts_output
         return output
@@ -303,8 +301,9 @@ class RBFKANLayer(BasisKANLayer):
         # Else sigmas are simple derivative of the grid
         sigmas = torch.empty_like(self.grid)  # nn.Parameter(torch.Tensor(grid_size,in_dim), requires_grad=False)
         self.register_buffer("sigmas", sigmas)
+        self.get_sigmas_from_grid()
         # Choose which parametrization to use
-        self.get_activations_params = self.get_sigma_activations_params
+        self.get_activations_params = self.get_identity_activations_params
 
         # Base functions
         self.rbf = self.gaussian_rbf  # Selection of the RBF
@@ -323,12 +322,31 @@ class RBFKANLayer(BasisKANLayer):
     def get_identity_activations_params(self):  # Allow for changing the shape of parameters
         return self.grid, self.sigmas
 
-    def get_sigma_activations_params(self):
+    def get_sigmas_from_grid(self):
         # C'est gradient mais sur le tensor sorted
         sorted_grid, inds_sort = torch.sort(self.grid, dim=1)
         batch_indices = torch.arange(self.grid.size(0), device=self.sigmas.device).unsqueeze(-1).expand_as(inds_sort)
         self.sigmas[batch_indices, inds_sort] = 1.2 / torch.gradient(sorted_grid, dim=0)[0]
-        return self.grid, self.sigmas
+        return self.sigmas
+
+    @torch.no_grad()
+    def update_grid(self, x: torch.Tensor, margin=0.01):
+        assert x.dim() == 2 and x.size(1) == self.in_features
+        batch = x.size(0)
+        basis_values = self.basis(x)
+        unreduced_basis_output = torch.sum(basis_values.unsqueeze(1) * self.scaled_weights.unsqueeze(0), dim=2)  # (batch, out, in)
+        unreduced_basis_output = unreduced_basis_output.transpose(1, 2)  # (batch, in, out)
+        # sort each channel individually to collect data distribution
+        x_sorted = torch.sort(x, dim=0)[0]
+        grid_adaptive = x_sorted[torch.linspace(0, batch - 1, self.grid_size, dtype=torch.int64, device=x.device)]
+
+        uniform_step = (x_sorted[-1] - x_sorted[0] + 2 * margin) / self.grid_size
+        grid_uniform = torch.arange(self.grid_size, dtype=x.dtype, device=x.device).unsqueeze(1) * uniform_step + x_sorted[0] - margin
+
+        grid = self.grid_alpha * grid_uniform + (1 - self.grid_alpha) * grid_adaptive
+        self.grid.copy_(grid)
+        self.get_sigmas_from_grid()
+        self.scaled_weights = self.curve2coeff(x, unreduced_basis_output)
 
     def basis(self, x):
         grid, sigmas = self.get_activations_params()

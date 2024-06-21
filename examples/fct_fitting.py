@@ -15,7 +15,7 @@ grids = np.array([5, 10, 20, 50, 100])
 
 train_losses = []
 test_losses = []
-steps = 50
+steps = 75
 k = 3
 
 for i in range(grids.shape[0]):
@@ -23,11 +23,10 @@ for i in range(grids.shape[0]):
         model = KAN(build_splines_layers([2, 1, 1], grid_size=grids[i], spline_order=k))
     if i != 0:
         model = KAN(build_splines_layers([2, 1, 1], grid_size=grids[i], spline_order=k)).initialize_from_another_model(model)
-    results = train(model, dataset, opt="LBFGS", steps=steps, stop_grid_update_step=30, update_grid=None)
+    results = train(model, dataset, opt="LBFGS", steps=steps, stop_grid_update_step=50, update_grid=None, lamb=0.0)
     train_losses += results["train_loss"]
     test_losses += results["test_loss"]
-    # for name, param in model.named_parameters():
-    #     print(name, param)
+
 plt.figure()
 plt.plot(train_losses)
 plt.plot(test_losses)
