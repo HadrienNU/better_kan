@@ -97,7 +97,7 @@ class BasisKANLayer(torch.nn.Module):
 
         A = self.basis(x).permute(2, 0, 1)  # (in_features, batch_size, n_basis_function)
         B = y.transpose(0, 1)  # (in_features, batch_size, out_features)
-        solution = torch.linalg.lstsq(A, B).solution  # (in_features, n_basis_function, out_features)  # There is a bug here ?? but why?? remove most permutation??
+        solution = torch.linalg.lstsq(A, B).solution  # (in_features, n_basis_function, out_features)
         result = solution.permute(2, 1, 0)  # (out_features, n_basis_function, in_features)
 
         assert result.size() == (
@@ -107,9 +107,9 @@ class BasisKANLayer(torch.nn.Module):
         )
         return result.contiguous()
 
-    # TODO Ici on reshape les array comme il faut pour les masques et autres
     @property
     def scaled_weights(self):
+        # return self.weights  # * (self.basis_scaler).unsqueeze(1)
         return torch.matmul(self.weights * (self.basis_scaler).unsqueeze(1), self.mask)
 
     @scaled_weights.setter
@@ -118,6 +118,7 @@ class BasisKANLayer(torch.nn.Module):
 
     @property
     def scaled_base_weight(self):
+        # return self.base_scaler
         return torch.matmul(self.base_scaler, self.mask)
 
     @scaled_base_weight.setter
@@ -125,6 +126,20 @@ class BasisKANLayer(torch.nn.Module):
         self.base_scaler.data.copy_(torch.matmul(values, self.inv_mask))
 
     def forward(self, x: torch.Tensor):
+        # Fast version that does not allow for regularisation
+        # original_shape = x.shape
+        # x = x.view(-1, self.in_features)
+
+        # base_output = F.linear(self.base_activation(x), self.scaled_base_weight)
+        # spline_output = F.linear(
+        #     self.basis(x).view(x.size(0), -1),
+        #     self.scaled_weights.view(self.out_features, -1),
+        # )
+        # output = self.bias.unsqueeze(0) + base_output + spline_output
+
+        # output = output.view(*original_shape[:-1], self.out_features)
+        # return output
+
         original_shape = x.shape
         out_acts = self.activations_eval(x)  # C'est un peu plus lent mais ça permet qd même de calculer ce qu'on veut
         # Somes statistics for regularisation and plot
@@ -144,10 +159,8 @@ class BasisKANLayer(torch.nn.Module):
         x = x.view(-1, self.in_features)
 
         base_output = self.base_activation(x).unsqueeze(1) * self.scaled_base_weight.unsqueeze(0)
-
-        basis_values = self.basis(x)
-
-        acts_output = torch.sum(basis_values.unsqueeze(1) * self.scaled_weights.unsqueeze(0), dim=2)
+        basis_values = self.basis(x)  # Here is the bottleneck of performance
+        acts_output = torch.einsum("xbi,obi->xoi", basis_values, self.scaled_weights)  # Here is the bottleneck of performance
 
         output = base_output + acts_output
         return output
@@ -180,24 +193,34 @@ class BasisKANLayer(torch.nn.Module):
         return regularize_activation * regularization_loss_activation + regularize_entropy * regularization_loss_entropy
 
     @torch.no_grad()
-    def initialize_grid_from_parent(self, parent):
+    def initialize_grid_from_parent(self, parent, in_id=None, out_id=None):
         """
         Get grid from a parent and compute grid and weights
         """
+        if in_id is None:
+            in_id = torch.arange(self.in_features)
+        if out_id is None:
+            out_id = torch.arange(self.out_features)
         old_grid = parent.grid
-        assert old_grid.dim() == 2 and old_grid.size(1) == self.in_features
+
         x_sorted = torch.sort(old_grid, dim=0)[0]
-        new_grid = x_sorted[torch.linspace(0, old_grid.size(0) - 1, self.grid.size(0), dtype=torch.int64, device=self.grid.device)]
-        self.grid.copy_(new_grid)
+        # indices = torch.linspace(0, old_grid.size(0) - 1.00001, self.grid.size(0), dtype=torch.int64, device=self.grid.device)
+        points = torch.linspace(0, old_grid.size(0) - 1.00001, self.grid.size(0), dtype=x_sorted.dtype, device=self.grid.device)
+        indices = torch.floor(points)
+        floating_part = (points - indices).unsqueeze(1)
+        indices = indices.to(torch.int64)
+        new_grid = x_sorted[indices] * (1.0 - floating_part) + x_sorted[indices + 1] * floating_part
+
+        self.grid.copy_(new_grid[:, in_id])
 
         # Et après ça il faut actualiser les poids
-        basis_values = parent.basis(self.grid)
+        basis_values = parent.basis(new_grid)
         unreduced_basis_output = torch.sum(basis_values.unsqueeze(1) * parent.scaled_weights.unsqueeze(0), dim=2)  # (batch, out, in)
-        unreduced_basis_output = unreduced_basis_output.transpose(1, 2)
+        unreduced_basis_output = unreduced_basis_output.transpose(1, 2)[:, in_id][:, :, out_id]
 
         self.scaled_weights = self.curve2coeff(self.grid, unreduced_basis_output)
 
-    def set_from_parent(self, parent, in_id, out_id):
+    def set_from_another_layer(self, parent, in_id=None, out_id=None):
         """
         set a smaller KANLayer from a larger KANLayer (used for pruning)
 
@@ -222,16 +245,19 @@ class BasisKANLayer(torch.nn.Module):
         >>> kanlayer_small.in_dim, kanlayer_small.out_dim
         (2, 3)
         """
+        if in_id is None:
+            in_id = torch.arange(self.in_features)
+        if out_id is None:
+            out_id = torch.arange(self.out_features)
         # Gérer le mask
-        print(parent.bias.shape, self.bias.shape, out_id, self.out_features)
         self.bias.data.copy_(parent.bias[out_id])
         self.base_scaler.data.copy_(parent.base_scaler[out_id][:, in_id])
         self.basis_scaler.data.copy_(parent.basis_scaler[out_id][:, in_id])
-        self.initialize_grid_from_parent(parent)  # This will set grid and weights for the basis
+        self.initialize_grid_from_parent(parent, in_id, out_id)  # This will set grid and weights for the basis
 
         # newlayer.mask.data.copy_()
 
-        return newlayer
+        return self
 
 
 class RBFKANLayer(BasisKANLayer):
@@ -387,7 +413,7 @@ class RBFKANLayer(BasisKANLayer):
             sbasis_trainable=self.basis_scaler.requires_grad,
             bias_trainable=self.bias.requires_grad,
         )
-        newlayer.set_from_parent(self, in_id, out_id)  # Ca créer tous les trucs de base
+        newlayer.set_from_another_layer(self, in_id, out_id)  # Ca créer tous les trucs de base
         newlayer.sigmas.data.copy_(self.sigmas[:, in_id])
         return newlayer
 
@@ -450,7 +476,6 @@ class SplinesKANLayer(BasisKANLayer):
         bases = ((x >= grid[:-1, :]) & (x < grid[1:, :])).to(x.dtype)
         for k in range(1, self.spline_order + 1):
             bases = ((x - grid[: -(k + 1), :]) / (grid[k:-1, :] - grid[: -(k + 1), :]) * bases[:, :-1, :]) + ((grid[k + 1 :, :] - x) / (grid[k + 1 :, :] - grid[1:(-k), :]) * bases[:, 1:, :])
-
         assert bases.size() == (
             x.size(0),
             self.n_basis_function,
@@ -525,5 +550,5 @@ class SplinesKANLayer(BasisKANLayer):
             sbasis_trainable=self.basis_scaler.requires_grad,
             bias_trainable=self.bias.requires_grad,
         )
-        newlayer.set_from_parent(self, in_id, out_id)
+        newlayer.set_from_another_layer(self, in_id, out_id)
         return newlayer

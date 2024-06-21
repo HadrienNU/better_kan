@@ -90,6 +90,17 @@ class KAN(torch.nn.Module):
     def regularization_loss(self, regularize_activation=1.0, regularize_entropy=1.0):
         return sum(layer.regularization_loss(regularize_activation, regularize_entropy) for layer in self.layers if hasattr(layer, "regularization_loss"))
 
+    def initialize_from_another_model(self, other):
+        """
+        Initialize the grid and weight of current model from another one
+        """
+        for n, layer in enumerate(self.layers):
+            if hasattr(layer, "set_from_another_layer"):
+                layer.set_from_another_layer(other.layers[n])
+            else:
+                layer = copy.deepcopy(other.layers[n])
+        return self
+
     def prune(self, threshold=1e-2, mode="auto", active_neurons_id=None):
         """
         pruning KAN on the node level. If a node has small incoming or outgoing connection, it will be pruned away.
