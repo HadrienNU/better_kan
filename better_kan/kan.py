@@ -1,5 +1,6 @@
 import torch
 import numpy as np
+import copy
 from .layers import RBFKANLayer, SplinesKANLayer
 
 
@@ -86,7 +87,7 @@ class KAN(torch.nn.Module):
         return x
 
     def regularization_loss(self, regularize_activation=1.0, regularize_entropy=1.0):
-        return sum(layer.regularization_loss(regularize_activation, regularize_entropy) for layer in self.layers)
+        return sum(layer.regularization_loss(regularize_activation, regularize_entropy) for layer in self.layers if hasattr(layer, "regularization_loss"))
 
     def prune(self, threshold=1e-2, mode="auto", active_neurons_id=None):
         """
@@ -123,18 +124,24 @@ class KAN(torch.nn.Module):
 
         active_neurons = [list(range(self.width[0]))]
         for i in range(len(self.layers) - 1):  # Not considering first and last layers
-            if mode == "auto":
-                in_important = torch.max(self.layers[i].l1_norm, dim=1)[0] > threshold
-                out_important = torch.max(self.layers[i + 1].l1_norm, dim=0)[0] > threshold
-                overall_important = in_important * out_important
-            elif mode == "manual":
-                overall_important = torch.zeros(self.width[i + 1], dtype=torch.bool)
-                overall_important[active_neurons_id[i + 1]] = True
-            active_neurons.append(torch.where(overall_important == True)[0])
+            if hasattr(self.layers[i], "l1_norm") and hasattr(self.layers[i + 1], "l1_norm"):  # Skip layer that are not KAN
+                if mode == "auto":
+                    in_important = torch.max(self.layers[i].l1_norm, dim=1)[0] > threshold
+                    out_important = torch.max(self.layers[i + 1].l1_norm, dim=0)[0] > threshold
+                    overall_important = in_important * out_important
+                elif mode == "manual":
+                    overall_important = torch.zeros(self.width[i + 1], dtype=torch.bool)
+                    overall_important[active_neurons_id[i + 1]] = True
+                active_neurons.append(torch.where(overall_important == True)[0])
+            else:
+                active_neurons.append(list(range(self.width[i + 1])))
         active_neurons.append(list(range(self.width[-1])))
 
         new_layers = torch.nn.ModuleList()
         for i in range(len(self.width) - 1):
-            new_layers.append(self.layers[i].get_subset(active_neurons[i], active_neurons[i + 1]))
+            if hasattr(self.layers[i], "get_subset"):
+                new_layers.append(self.layers[i].get_subset(active_neurons[i], active_neurons[i + 1]))
+            else:
+                new_layers.append(copy.deepcopy(self.layers[i]))
 
         return KAN(new_layers)
