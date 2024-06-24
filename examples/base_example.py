@@ -18,24 +18,23 @@ model(dataset["train_input"])
 plot(model, title="KAN_initialisation", tick=False)
 
 
-# results = train(model, dataset, opt="LBFGS", steps=60, update_grid=True, lamb=0.05)
+results = train(model, dataset, opt="LBFGS", steps=60, update_grid=True, lamb=0.05)
 
-# plt.figure()
+plt.figure()
 
-# plt.plot(results["train_loss"])
-# plt.plot(results["test_loss"])
-# plt.plot(results["reg"])
-# plt.legend(["train", "test", "reg"])
-# plt.ylabel("RMSE")
-# plt.xlabel("step")
-# plt.yscale("log")
-
-
-# plot(model, title="KAN_after training", tick=False)
-# print(model.state_dict())
+plt.plot(results["train_loss"])
+plt.plot(results["test_loss"])
+plt.plot(results["reg"])
+plt.legend(["train", "test", "reg"])
+plt.ylabel("RMSE")
+plt.xlabel("step")
+plt.yscale("log")
 
 
-new_model = model.prune(mode="manual", active_neurons_id=[[0, 3]])
+plot(model, title="KAN_after training", tick=False)
+
+
+new_model = model.prune(mode="automatic")
 
 new_model(dataset["train_input"])
 
