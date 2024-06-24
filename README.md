@@ -21,17 +21,37 @@ $$ \sum_p  \sum_i  c_{q,i} \phi \left(  |x_p-c_i|\right)  .$$
 The last formula is the one implemented here.
 
 
-## Current benchmark (20/06/2024)
+## Current benchmark (24/06/2024)
 
-The splines implementation is not as fast as efficient-kan but still allow for significant speedup with respect to pykan (around 77ms).  Based on [this benchmarck](https://github.com/Jerry-Master/KAN-benchmarking)
+The splines implementation is not as fast as efficient-kan but still allow for significant speedup with respect to pykan.  Based on [this benchmarck](https://github.com/Jerry-Master/KAN-benchmarking)
 
-|                           |      forward  |     backward  |      forward  |     backward  |   num params  |  num trainable params
-|---------------------------|---------------|---------------|---------------|---------------|---------------|----------------------
-|effkan-cpu                 |     11.74 ms  |     19.18 ms  |       nan GB  |       nan GB  |         4500  |                  4500
-|effkan-gpu                 |      3.41 ms  |      5.77 ms  |      0.07 GB  |      0.07 GB  |         4500  |                  4500
-|mlp-cpu                    |      1.17 ms  |      1.59 ms  |       nan GB  |       nan GB  |         6001  |                  6001
-|mlp-gpu                    |      0.28 ms  |      0.60 ms  |      0.03 GB  |      0.03 GB  |         6001  |                  6001
-|rbf-better_kan-cpu         |      4.21 ms  |      3.74 ms  |       nan GB  |       nan GB  |         5265  |                  4201
-|rbf-better_kan-gpu         |      1.48 ms  |      1.32 ms  |      0.04 GB  |      0.04 GB  |         5265  |                  4201
-|splines-better_kan-cpu    |     13.51 ms  |     18.50 ms  |       nan GB  |       nan GB  |         4651  |                  4651
-|splines-better_kan-gpu     |      3.75 ms  |      5.73 ms  |      0.07 GB  |      0.07 GB  |         4651  |                  4651
+``
+python3 benchmark.py --batch-size 1000 --inp-size 100 --hid-size 1000 --reps 50
+``
+
+
+|                        |      forward  |     backward  |      forward  |     backward  |   num params  |  num trainable params
+|------------------------|---------------|---------------|---------------|---------------|---------------|----------------------
+|effkan-cpu              |     94.05 ms  |    177.52 ms  |       nan GB  |       nan GB  |      1010000  |               1010000
+|effkan-gpu              |     20.63 ms  |     36.95 ms  |      0.36 GB  |      0.37 GB  |      1010000  |               1010000
+|mlp-cpu                 |     10.29 ms  |     13.92 ms  |       nan GB  |       nan GB  |      1020001  |               1020001
+|mlp-gpu                 |      1.95 ms  |      3.17 ms  |      0.10 GB  |      0.14 GB  |      1020001  |               1020001
+|rbf-better_kan-cpu      |    290.91 ms  |    130.82 ms  |       nan GB  |       nan GB  |      1019801  |               1011001
+|rbf-better_kan-gpu      |     46.62 ms  |     29.09 ms  |      1.53 GB  |      0.79 GB  |      1019801  |               1011001
+|splines-better_kan-cpu  |    343.72 ms  |    282.10 ms  |       nan GB  |       nan GB  |      1011001  |               1011001
+|splines-better_kan-gpu  |     61.39 ms  |     63.29 ms  |      1.53 GB  |      0.79 GB  |      1011001  |               1011001
+|cheby-better_kan-cpu    |    245.98 ms  |    113.21 ms  |       nan GB  |       nan GB  |      1213001  |               1213001
+|cheby-better_kan-gpu    |     44.12 ms  |     23.91 ms  |      1.53 GB  |      0.79 GB  |      1213001  |               1213001
+
+
+Comparing to pykan (with smaller number of parameters)
+
+``
+python3 benchmark.py --batch-size 1000 --inp-size 100 --hid-size 100 --reps 10 --method pykan
+``
+
+
+|           |      forward  |     backward  |      forward  |     backward  |   num params  |  num trainable params
+|-----------|---------------|---------------|---------------|---------------|---------------|----------------------
+|pykan-cpu  |   2092.33 ms  |   2032.41 ms  |       nan GB  |       nan GB  |       222301  |                141501
+|pykan-gpu  |   1742.72 ms  |   3726.45 ms  |      1.51 GB  |      0.66 GB  |       222301  |                141501
