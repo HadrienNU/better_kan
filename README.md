@@ -57,7 +57,7 @@ python3 benchmark.py --batch-size 1000 --inp-size 100 --hid-size 100 --reps 10 -
 |pykan-gpu  |   1742.72 ms  |   3726.45 ms  |      1.51 GB  |      0.66 GB  |       222301  |                141501
 
 
-However, when swicthing to fast version, speed becomes comparable to faster KAN implementation. But this fast version does not allow to use the original regularization niether the plotting and pruning utilities.
+However, when swicthing to fast version, speed becomes comparable to faster KAN implementation. But this fast version does not allow to use the original regularization neither the plotting and pruning utilities.
 
 ``
 python3 benchmark.py --batch-size 1000 --inp-size 100 --hid-size 1000 --reps 50 --fast_better_kan
