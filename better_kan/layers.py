@@ -21,6 +21,7 @@ class BasisKANLayer(torch.nn.Module):
         sb_trainable=True,
         sbasis_trainable=True,
         bias_trainable=True,
+        fast_version=False,
     ):
         super(BasisKANLayer, self).__init__()
         self.in_features = in_features
@@ -52,6 +53,11 @@ class BasisKANLayer(torch.nn.Module):
         self.weights = torch.nn.Parameter(torch.Tensor(out_features, n_basis_function, self.reduced_in_dim))
 
         self.base_activation = base_activation()
+
+        if fast_version is True:
+            self.forward = self.forward_fast
+        else:
+            self.forward = self.forward_slow
 
     def reset_parameters(self):
         # torch.nn.init.kaiming_uniform_(self.base_weight, a=np.sqrt(5) * self.scale_base)
@@ -123,20 +129,21 @@ class BasisKANLayer(torch.nn.Module):
     def scaled_base_weight(self, values):
         self.base_scaler.data.copy_(torch.matmul(values, self.inv_mask))
 
-    def forward(self, x: torch.Tensor):
+    def forward_fast(self, x: torch.Tensor):
         # Fast version that does not allow for regularisation
-        # original_shape = x.shape
-        # x = x.view(-1, self.in_features)
+        original_shape = x.shape
+        x = x.view(-1, self.in_features)
+        base_output = F.linear(self.base_activation(x), self.scaled_base_weight)
+        spline_output = F.linear(
+            self.basis(x).reshape(x.size(0), -1),
+            self.scaled_weights.view(self.out_features, -1),
+        )
+        output = self.bias.unsqueeze(0) + base_output + spline_output
 
-        # base_output = F.linear(self.base_activation(x), self.scaled_base_weight)
-        # spline_output = F.linear(
-        #     self.basis(x).view(x.size(0), -1),
-        #     self.scaled_weights.view(self.out_features, -1),
-        # )
-        # output = self.bias.unsqueeze(0) + base_output + spline_output
+        output = output.view(*original_shape[:-1], self.out_features)
+        return output
 
-        # output = output.view(*original_shape[:-1], self.out_features)
-        # return output
+    def forward_slow(self, x: torch.Tensor):
 
         original_shape = x.shape
         out_acts = self.activations_eval(x)
@@ -185,10 +192,13 @@ class BasisKANLayer(torch.nn.Module):
         """
         Compute the regularization loss.
         """
-        regularization_loss_activation = self.l1_norm.sum()
-        p = self.l1_norm / regularization_loss_activation
-        regularization_loss_entropy = -torch.sum(p * p.log())
-        return regularize_activation * regularization_loss_activation + regularize_entropy * regularization_loss_entropy
+        if hasattr(self, "l1_norm"):
+            regularization_loss_activation = self.l1_norm.sum()
+            p = self.l1_norm / regularization_loss_activation
+            regularization_loss_entropy = -torch.sum(p * p.log())
+            return regularize_activation * regularization_loss_activation + regularize_entropy * regularization_loss_entropy
+        else:
+            return torch.tensor(0.0)
 
     @torch.no_grad()
     def initialize_grid_from_parent(self, parent, in_id=None, out_id=None):
@@ -275,6 +285,7 @@ class RBFKANLayer(BasisKANLayer):
         sb_trainable=True,
         sbasis_trainable=True,
         bias_trainable=True,
+        fast_version=False,
     ):
         super(RBFKANLayer, self).__init__(
             in_features,
@@ -290,6 +301,7 @@ class RBFKANLayer(BasisKANLayer):
             sb_trainable,
             sbasis_trainable,
             bias_trainable,
+            fast_version,
         )
         self.optimize_grid = optimize_grid
         # Creating the parameters
@@ -385,11 +397,11 @@ class RBFKANLayer(BasisKANLayer):
         return phi
 
     def matern32_rbf(self, distances):
-        phi = (torch.ones_like(distances) + 3**0.5 * distances) * torch.exp(-(3**0.5) * distances)
+        phi = (torch.ones_like(distances) + 3 ** 0.5 * distances) * torch.exp(-(3 ** 0.5) * distances)
         return phi
 
     def matern52_rbf(self, distances):
-        phi = (torch.ones_like(distances) + 5**0.5 * distances + (5 / 3) * distances.pow(2)) * torch.exp(-(5**0.5) * distances)
+        phi = (torch.ones_like(distances) + 5 ** 0.5 * distances + (5 / 3) * distances.pow(2)) * torch.exp(-(5 ** 0.5) * distances)
         return phi
 
     def get_subset(self, in_id, out_id, new_grid_size=None):
@@ -453,6 +465,7 @@ class SplinesKANLayer(BasisKANLayer):
         sb_trainable=True,
         sbasis_trainable=True,
         bias_trainable=True,
+        fast_version=False,
     ):
         super(SplinesKANLayer, self).__init__(
             in_features,
@@ -468,6 +481,7 @@ class SplinesKANLayer(BasisKANLayer):
             sb_trainable,
             sbasis_trainable,
             bias_trainable,
+            fast_version,
         )
         self.spline_order = spline_order
 
@@ -499,7 +513,7 @@ class SplinesKANLayer(BasisKANLayer):
             self.n_basis_function,
             self.in_features,
         )
-        return bases.contiguous()
+        return bases  # .contiguous()
 
     @torch.no_grad()
     def update_grid(self, x: torch.Tensor, margin=0.01):
@@ -589,6 +603,7 @@ class ChebyshevKANLayer(BasisKANLayer):
         sb_trainable=True,
         sbasis_trainable=True,
         bias_trainable=True,
+        fast_version=False,
     ):
         super(ChebyshevKANLayer, self).__init__(
             in_features,
@@ -604,6 +619,7 @@ class ChebyshevKANLayer(BasisKANLayer):
             sb_trainable,
             sbasis_trainable,
             bias_trainable,
+            fast_version,
         )
         self.chebyshev_order = chebyshev_order
 

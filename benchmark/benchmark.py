@@ -140,6 +140,7 @@ def _create_parser():
     parser.add_argument("--hid-size", type=int, default=50, help="The dimension of the hidden layer.")
     parser.add_argument("--reps", type=int, default=10, help="Number of times to repeat execution and average.")
     parser.add_argument("--just-cuda", action="store_true", help="Whether to only execute the cuda version.")
+    parser.add_argument("--fast_better_kan", action="store_true", help="Whether to use the fast version of better_kan.")
     return parser
 
 
@@ -184,7 +185,7 @@ def main():
             res["mlp-gpu"] = benchmark(dataset, "cuda", args.batch_size, loss_fn, model, args.reps)
             res["mlp-gpu"]["params"], res["mlp-gpu"]["train_params"] = count_params(model)
     if args.method == "rbf-kan" or args.method == "all":
-        model = BetterKAN(build_rbf_layers([args.inp_size, args.hid_size, 1], grid_size=8))
+        model = BetterKAN(build_rbf_layers([args.inp_size, args.hid_size, 1], grid_size=8, fast_version=args.fast_better_kan))
         gc.collect()
         torch.cuda.empty_cache()
         model.to("cpu")
@@ -196,7 +197,7 @@ def main():
             res["rbf-better_kan-gpu"] = benchmark(dataset, "cuda", args.batch_size, loss_fn, model, args.reps)
             res["rbf-better_kan-gpu"]["params"], res["rbf-better_kan-gpu"]["train_params"] = count_params(model)
 
-        model = BetterKAN(build_splines_layers([args.inp_size, args.hid_size, 1], grid_size=5))
+        model = BetterKAN(build_splines_layers([args.inp_size, args.hid_size, 1], grid_size=5, fast_version=args.fast_better_kan))
         gc.collect()
         torch.cuda.empty_cache()
         model.to("cpu")
@@ -208,7 +209,7 @@ def main():
             res["splines-better_kan-gpu"] = benchmark(dataset, "cuda", args.batch_size, loss_fn, model, args.reps)
             res["splines-better_kan-gpu"]["params"], res["splines-better_kan-gpu"]["train_params"] = count_params(model)
 
-        model = BetterKAN(build_chebyshev_layers([args.inp_size, args.hid_size, 1], chebyshev_order=9))
+        model = BetterKAN(build_chebyshev_layers([args.inp_size, args.hid_size, 1], chebyshev_order=9, fast_version=args.fast_better_kan))
         gc.collect()
         torch.cuda.empty_cache()
         model.to("cpu")
