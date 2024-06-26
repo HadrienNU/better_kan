@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 from better_kan import KAN, build_chebyshev_layers, create_dataset, plot, train
 
 
-model = KAN(build_chebyshev_layers([2, 5, 1], grid_size=5, fast_version=True))
+model = KAN(build_chebyshev_layers([2, 5, 1], grid_size=5, fast_version=False))
 
 
 f = lambda x: torch.exp(torch.sin(torch.pi * x[:, [0]]) + x[:, [1]] ** 2)
@@ -34,7 +34,7 @@ plt.yscale("log")
 plot(model, title="KAN_after training", tick=False)
 
 
-new_model = model.prune(mode="automatic")
+new_model = model.prune(mode="auto")
 
 new_model(dataset["train_input"])
 

@@ -54,10 +54,7 @@ class BasisKANLayer(torch.nn.Module):
 
         self.base_activation = base_activation()
 
-        if fast_version is True:
-            self.forward = self.forward_fast
-        else:
-            self.forward = self.forward_slow
+        self.set_speed_mode(fast_version)
 
     def reset_parameters(self):
         # torch.nn.init.kaiming_uniform_(self.base_weight, a=np.sqrt(5) * self.scale_base)
@@ -134,11 +131,11 @@ class BasisKANLayer(torch.nn.Module):
         original_shape = x.shape
         x = x.view(-1, self.in_features)
         base_output = F.linear(self.base_activation(x), self.scaled_base_weight)
-        spline_output = F.linear(
+        basis_output = F.linear(
             self.basis(x).reshape(x.size(0), -1),
             self.scaled_weights.view(self.out_features, -1),
         )
-        output = self.bias.unsqueeze(0) + base_output + spline_output
+        output = self.bias.unsqueeze(0) + base_output + basis_output
 
         output = output.view(*original_shape[:-1], self.out_features)
         return output
@@ -266,6 +263,14 @@ class BasisKANLayer(torch.nn.Module):
         # newlayer.mask.data.copy_()
 
         return self
+
+    def set_speed_mode(self, fast=True):
+        if fast:
+            self.forward = self.forward_fast
+            if hasattr(self, "l1_norm"):
+                del self.l1_norm
+        else:
+            self.forward = self.forward_slow
 
 
 class RBFKANLayer(BasisKANLayer):
@@ -397,11 +402,11 @@ class RBFKANLayer(BasisKANLayer):
         return phi
 
     def matern32_rbf(self, distances):
-        phi = (torch.ones_like(distances) + 3 ** 0.5 * distances) * torch.exp(-(3 ** 0.5) * distances)
+        phi = (torch.ones_like(distances) + 3**0.5 * distances) * torch.exp(-(3**0.5) * distances)
         return phi
 
     def matern52_rbf(self, distances):
-        phi = (torch.ones_like(distances) + 5 ** 0.5 * distances + (5 / 3) * distances.pow(2)) * torch.exp(-(5 ** 0.5) * distances)
+        phi = (torch.ones_like(distances) + 5**0.5 * distances + (5 / 3) * distances.pow(2)) * torch.exp(-(5**0.5) * distances)
         return phi
 
     def get_subset(self, in_id, out_id, new_grid_size=None):
@@ -642,7 +647,7 @@ class ChebyshevKANLayer(BasisKANLayer):
             torch.Tensor: Chebyshev bases tensor of shape (batch_size, chebyshev_order, in_features).
         """
         assert x.dim() == 2 and x.size(1) == self.in_features
-        x = torch.tanh(x)
+        x = torch.tanh((x - (self.grid[0, :] + self.grid[-1, :])) / (self.grid[-1, :] - self.grid[0, :]))  # Rescale into grid
         # View and repeat input degree + 1 times
         x = x.view((-1, self.in_features, 1)).expand(-1, -1, self.chebyshev_order + 1)  # shape = (batch_size, in_features, self.degree + 1)
         # Apply acos
