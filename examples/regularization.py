@@ -20,7 +20,7 @@ results = np.zeros((10, 10, 3))
 for n, l1 in enumerate(l1_mesh):
     for m, entropy in enumerate(entropy_mesh):
 
-        model = KAN(build_chebyshev_layers([2, 5, 1], grid_size=30))
+        model = KAN(build_chebyshev_layers([2, 5, 5, 1], grid_size=30))
 
         res = train(model, dataset, opt="LBFGS", steps=100, update_grid=True, lamb=1.0, lamb_entropy=entropy, lamb_l1=l1)
 

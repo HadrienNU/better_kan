@@ -5,6 +5,15 @@ import torch.nn.functional as F
 import numpy as np
 
 
+def mask_subset(mask, in_id=None):
+    """
+    Get new mask for layer subset
+    """
+    if in_id is not None:
+        mask = mask[:, in_id]
+    return mask[mask.sum(1).to(dtype=torch.bool), :]  # Remove entry that does not matter
+
+
 class BasisKANLayer(torch.nn.Module):
     def __init__(
         self,
@@ -225,7 +234,6 @@ class BasisKANLayer(torch.nn.Module):
         old_grid = parent.grid
 
         x_sorted = torch.sort(old_grid, dim=0)[0]
-        # indices = torch.linspace(0, old_grid.size(0) - 1.00001, self.grid.size(0), dtype=torch.int64, device=self.grid.device)
         points = torch.linspace(0, old_grid.size(0) - 1.00001, self.grid.size(0), dtype=x_sorted.dtype, device=self.grid.device)
         indices = torch.floor(points)
         floating_part = (points - indices).unsqueeze(1)
@@ -268,12 +276,15 @@ class BasisKANLayer(torch.nn.Module):
         """
         if in_id is None:
             in_id = torch.arange(self.in_features)
+            in_id_bool = torch.ones(self.in_features).to(dtype=torch.bool)
+        else:
+            in_id_bool = (parent.mask[:, in_id]).sum(1).to(dtype=torch.bool)
         if out_id is None:
             out_id = torch.arange(self.out_features)
         # Gérer le mask
         self.bias.data.copy_(parent.bias[out_id])
-        self.base_scaler.data.copy_(parent.base_scaler[out_id][:, in_id])
-        self.basis_scaler.data.copy_(parent.basis_scaler[out_id][:, in_id])
+        self.base_scaler.data.copy_(parent.base_scaler[out_id][:, in_id_bool])
+        self.basis_scaler.data.copy_(parent.basis_scaler[out_id][:, in_id_bool])
         self.initialize_grid_from_parent(parent, in_id, out_id)  # This will set grid and weights for the basis
 
         # newlayer.mask.data.copy_()
@@ -454,7 +465,7 @@ class RBFKANLayer(BasisKANLayer):
             len(in_id),
             len(out_id),
             grid_size=self.grid_size if new_grid_size is None else new_grid_size,
-            # mask=???,  # A redéfinir
+            mask=mask_subset(self.mask, in_id),
             optimize_grid=self.optimize_grid,
             scale_noise=self.scale_noise,
             scale_base=self.scale_base,
@@ -466,7 +477,7 @@ class RBFKANLayer(BasisKANLayer):
             sbasis_trainable=self.basis_scaler.requires_grad,
             bias_trainable=self.bias.requires_grad,
         )
-        newlayer.set_from_another_layer(self, in_id, out_id)  # Ca créer tous les trucs de base
+        newlayer.set_from_another_layer(self, in_id, out_id)  # It copy almost all variables
         newlayer.sigmas.data.copy_(self.sigmas[:, in_id])
         return newlayer
 
@@ -593,14 +604,14 @@ class SplinesKANLayer(BasisKANLayer):
             len(in_id),
             len(out_id),
             grid_size=self.grid_size if new_grid_size is None else new_grid_size,
-            # mask=???,  # A redéfinir
+            mask=mask_subset(self.mask, in_id),
             spline_order=self.spline_order,
             scale_noise=self.scale_noise,
             scale_base=self.scale_base,
             scale_basis=self.scale_basis,
             base_activation=type(self.base_activation),
             grid_alpha=self.grid_alpha,
-            grid_range=[-1, 1],  # On s'en fout on va la redéfinir
+            grid_range=[-1, 1],  # We don't care since the grid is going to be redefined
             sb_trainable=self.base_scaler.requires_grad,
             sbasis_trainable=self.basis_scaler.requires_grad,
             bias_trainable=self.bias.requires_grad,
@@ -646,9 +657,11 @@ class ChebyshevKANLayer(BasisKANLayer):
         )
         self.chebyshev_order = chebyshev_order
 
+        self.grid_range = grid_range
+
         h = (grid_range[1] - grid_range[0]) / grid_size
-        grid = (torch.arange(grid_size) * h + grid_range[0]).expand(in_features, -1).transpose(0, 1).contiguous()
-        self.register_buffer("grid", grid)
+        grid = (torch.arange(grid_size) * h + grid_range[0]).expand(self.reduced_in_dim, -1).transpose(0, 1).contiguous()
+        self.register_buffer("_grid", grid)
 
         self.register_buffer("arange", torch.arange(0, self.chebyshev_order + 1, 1))
 
@@ -703,14 +716,14 @@ class ChebyshevKANLayer(BasisKANLayer):
             len(in_id),
             len(out_id),
             grid_size=self.grid_size if new_grid_size is None else new_grid_size,
-            # mask=???,  # A redéfinir
+            mask=mask_subset(self.mask, in_id),
             chebyshev_order=self.chebyshev_order,
             scale_noise=self.scale_noise,
             scale_base=self.scale_base,
             scale_basis=self.scale_basis,
             base_activation=type(self.base_activation),
             grid_alpha=self.grid_alpha,
-            grid_range=[-1, 1],  # On s'en fout on va la redéfinir
+            grid_range=self.grid_range,
             sb_trainable=self.base_scaler.requires_grad,
             sbasis_trainable=self.basis_scaler.requires_grad,
             bias_trainable=self.bias.requires_grad,

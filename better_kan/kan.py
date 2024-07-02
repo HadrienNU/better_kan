@@ -23,7 +23,7 @@ def invariant_input(inputs):
             mask[i - 1, n] = 1
         else:
             m += 1
-    return mask
+    return mask[mask.sum(1).to(dtype=torch.bool), :]  # Remove non contributing features
 
 
 # Two helpers functions to build stack  of KAN layers
