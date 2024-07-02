@@ -345,9 +345,6 @@ class RBFKANLayer(BasisKANLayer):
         self.register_buffer("sigmas", sigmas)
         self.get_sigmas_from_grid()
 
-        # Choose which parametrization to use
-        self.get_activations_params = self.get_identity_activations_params
-
         # Base functions
         self.rbf = self.gaussian_rbf  # Selection of the RBF
 
@@ -362,9 +359,6 @@ class RBFKANLayer(BasisKANLayer):
         # self._grid = torch.linspace(self.grid_range[0], self.grid_range[1], self.grid_size).expand(self.reduced_in_dim, -1).transpose(0, 1).contiguous()
 
         # init.trunc_normal_(self.sigmas, mean=self.scale_base, std=1.0)
-
-    def get_identity_activations_params(self):  # Allow for changing the shape of parameters
-        return self.grid, self.sigmas
 
     def get_sigmas_from_grid(self):
         # C'est gradient mais sur le tensor sorted
@@ -393,9 +387,8 @@ class RBFKANLayer(BasisKANLayer):
         self.scaled_weights = self.curve2coeff(x, unreduced_basis_output)
 
     def basis(self, x):
-        grid, sigmas = self.get_activations_params()
-        distances = x.unsqueeze(1) - grid.unsqueeze(0)
-        return self.rbf(distances * sigmas.unsqueeze(0))
+        distances = x.unsqueeze(1) - self.grid.unsqueeze(0)
+        return self.rbf(distances * self.sigmas.unsqueeze(0))
 
     def gaussian_rbf(self, distances):
         return torch.exp(-(distances.pow(2)))
