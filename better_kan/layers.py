@@ -276,9 +276,7 @@ class BasisKANLayer(torch.nn.Module):
         """
         if in_id is None:
             in_id = torch.arange(self.in_features)
-            in_id_bool = torch.ones(self.in_features).to(dtype=torch.bool)
-        else:
-            in_id_bool = (parent.mask[:, in_id]).sum(1).to(dtype=torch.bool)
+        in_id_bool = (parent.mask[:, in_id]).sum(1).to(dtype=torch.bool)
         if out_id is None:
             out_id = torch.arange(self.out_features)
         # Gérer le mask
