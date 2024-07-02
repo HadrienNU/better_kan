@@ -36,7 +36,7 @@ class BasisKANLayer(torch.nn.Module):
         else:
             self.reduced_in_dim = self.in_features
             mask = torch.eye(self.in_features)
-        self.register_buffer("mask", mask)
+        self.register_buffer("mask", mask)  #  shape: (self.reduced_in_dim, self.in_features)
         self.register_buffer("inv_mask", torch.linalg.pinv(mask))
 
         self.scale_noise = scale_noise
@@ -128,18 +128,19 @@ class BasisKANLayer(torch.nn.Module):
 
     @property
     def grid(self):
-        return torch.matmul(self._grid , self.mask)
+        return torch.matmul(self._grid, self.mask)
 
     @grid.setter
     def grid(self, values):
-        new_grid = torch.empty_like(self._grid)
-        # Group together values from the same group, faire une  boucle for pour chaque group parce que sinon ils n'ont de toute façon pas la même taille
-        
-
-        x_sorted = torch.sort(x, dim=0)[0]
-        new_grid[] = x_sorted[torch.linspace(0, x_sorted.shape[0] - 1, self.grid_size, dtype=torch.int64, device=values.device)]
-
-        self.grid.copy_(new_grid) # Changer ça en affectation, on a déjà crée un espace mémoire
+        if self.reduced_in_dim != self.in_features:  # If there is a mask
+            new_grid = torch.empty_like(self._grid)  # shape (grid_size, reduced_in_dim)
+            # Group together values from the same group
+            for n in range(self.reduced_in_dim):
+                x_sorted = torch.sort(torch.flatten(values[:, self.mask.to(dtype=torch.bool)[n, :]]), dim=0)[0]
+                new_grid[:, n] = x_sorted[torch.linspace(0, x_sorted.shape[0] - 1, self._grid.shape[0], dtype=torch.int64, device=values.device)]
+        else:  # Else this is just an identity operation so let skip it
+            new_grid = values
+        self._grid.copy_(new_grid)
 
     def forward_fast(self, x: torch.Tensor):
         # Fast version that does not allow for regularisation
@@ -326,14 +327,15 @@ class RBFKANLayer(BasisKANLayer):
         self.optimize_grid = optimize_grid
         # Creating the parameters
         h = (grid_range[1] - grid_range[0]) / grid_size
-        grid = (torch.arange(grid_size) * h + grid_range[0]).expand(in_features, -1).transpose(0, 1).contiguous()
+        grid = (torch.arange(grid_size) * h + grid_range[0]).expand(self.reduced_in_dim, -1).transpose(0, 1).contiguous()
         self._grid = nn.Parameter(grid, requires_grad=optimize_grid)
         # If optimizing over sigmas
         # self.sigmas = nn.Parameter(torch.Tensor(self.in_features, grid_size), requires_grad=False)
         # Else sigmas are simple derivative of the grid
-        sigmas = torch.empty_like(self._grid)  # nn.Parameter(torch.Tensor(grid_size,in_dim), requires_grad=False)
+        sigmas = torch.ones(grid_size, in_features)  # nn.Parameter(torch.Tensor(grid_size,in_dim), requires_grad=False)
         self.register_buffer("sigmas", sigmas)
         self.get_sigmas_from_grid()
+
         # Choose which parametrization to use
         self.get_activations_params = self.get_identity_activations_params
 
@@ -347,7 +349,8 @@ class RBFKANLayer(BasisKANLayer):
 
     def reset_parameters(self):
         super(RBFKANLayer, self).reset_parameters()
-        self.grid = torch.linspace(self.grid_range[0], self.grid_range[1], self.grid_size)
+        # # Reset directly the
+        # self._grid = torch.linspace(self.grid_range[0], self.grid_range[1], self.grid_size).expand(self.reduced_in_dim, -1).transpose(0, 1).contiguous()
 
         # init.trunc_normal_(self.sigmas, mean=self.scale_base, std=1.0)
 
@@ -356,9 +359,9 @@ class RBFKANLayer(BasisKANLayer):
 
     def get_sigmas_from_grid(self):
         # C'est gradient mais sur le tensor sorted
-        sorted_grid, inds_sort = torch.sort(self.grid, dim=1)
-        batch_indices = torch.arange(self.grid.size(0), device=self.sigmas.device).unsqueeze(-1).expand_as(inds_sort)
-        self.sigmas[batch_indices, inds_sort] = 1.2 / torch.gradient(sorted_grid, dim=0)[0]
+        sorted_grid, inds_sort = torch.sort(self.grid, dim=0)
+        batch_indices = torch.arange(self.grid.size(1), device=self.sigmas.device).unsqueeze(0).expand_as(inds_sort)
+        self.sigmas[inds_sort, batch_indices] = 1.2 / torch.gradient(sorted_grid, dim=0)[0]
         return self.sigmas
 
     @torch.no_grad()
@@ -417,11 +420,11 @@ class RBFKANLayer(BasisKANLayer):
         return phi
 
     def matern32_rbf(self, distances):
-        phi = (torch.ones_like(distances) + 3**0.5 * distances) * torch.exp(-(3**0.5) * distances)
+        phi = (torch.ones_like(distances) + 3 ** 0.5 * distances) * torch.exp(-(3 ** 0.5) * distances)
         return phi
 
     def matern52_rbf(self, distances):
-        phi = (torch.ones_like(distances) + 5**0.5 * distances + (5 / 3) * distances.pow(2)) * torch.exp(-(5**0.5) * distances)
+        phi = (torch.ones_like(distances) + 5 ** 0.5 * distances + (5 / 3) * distances.pow(2)) * torch.exp(-(5 ** 0.5) * distances)
         return phi
 
     def get_subset(self, in_id, out_id, new_grid_size=None):
@@ -506,8 +509,8 @@ class SplinesKANLayer(BasisKANLayer):
         self.spline_order = spline_order
 
         h = (grid_range[1] - grid_range[0]) / grid_size
-        grid = (torch.arange(-spline_order, grid_size + spline_order + 1) * h + grid_range[0]).expand(in_features, -1).transpose(0, 1).contiguous()
-        self.register_buffer("grid", grid)
+        grid = (torch.arange(-spline_order, grid_size + spline_order + 1) * h + grid_range[0]).expand(self.reduced_in_dim, -1).transpose(0, 1).contiguous()
+        self.register_buffer("_grid", grid)
 
         self.reset_parameters()
 
