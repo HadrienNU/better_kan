@@ -126,6 +126,21 @@ class BasisKANLayer(torch.nn.Module):
     def scaled_base_weight(self, values):
         self.base_scaler.data.copy_(torch.matmul(values, self.inv_mask))
 
+    @property
+    def grid(self):
+        return torch.matmul(self._grid , self.mask)
+
+    @grid.setter
+    def grid(self, values):
+        new_grid = torch.empty_like(self._grid)
+        # Group together values from the same group, faire une  boucle for pour chaque group parce que sinon ils n'ont de toute façon pas la même taille
+        
+
+        x_sorted = torch.sort(x, dim=0)[0]
+        new_grid[] = x_sorted[torch.linspace(0, x_sorted.shape[0] - 1, self.grid_size, dtype=torch.int64, device=values.device)]
+
+        self.grid.copy_(new_grid) # Changer ça en affectation, on a déjà crée un espace mémoire
+
     def forward_fast(self, x: torch.Tensor):
         # Fast version that does not allow for regularisation
         original_shape = x.shape
@@ -182,7 +197,7 @@ class BasisKANLayer(torch.nn.Module):
         grid_uniform = torch.arange(self.grid_size, dtype=x.dtype, device=x.device).unsqueeze(1) * uniform_step + x_sorted[0] - margin
 
         grid = self.grid_alpha * grid_uniform + (1 - self.grid_alpha) * grid_adaptive
-        self.grid.copy_(grid)
+        self.grid = grid
         self.scaled_weights = self.curve2coeff(x, unreduced_basis_output)
 
     def regularization_loss(self, regularize_activation=1.0, regularize_entropy=1.0):
@@ -216,7 +231,7 @@ class BasisKANLayer(torch.nn.Module):
         indices = indices.to(torch.int64)
         new_grid = x_sorted[indices] * (1.0 - floating_part) + x_sorted[indices + 1] * floating_part
 
-        self.grid.copy_(new_grid[:, in_id])
+        self.grid = new_grid[:, in_id]
 
         # Et après ça il faut actualiser les poids
         basis_values = parent.basis(new_grid)
@@ -312,11 +327,11 @@ class RBFKANLayer(BasisKANLayer):
         # Creating the parameters
         h = (grid_range[1] - grid_range[0]) / grid_size
         grid = (torch.arange(grid_size) * h + grid_range[0]).expand(in_features, -1).transpose(0, 1).contiguous()
-        self.grid = nn.Parameter(grid, requires_grad=optimize_grid)
+        self._grid = nn.Parameter(grid, requires_grad=optimize_grid)
         # If optimizing over sigmas
         # self.sigmas = nn.Parameter(torch.Tensor(self.in_features, grid_size), requires_grad=False)
         # Else sigmas are simple derivative of the grid
-        sigmas = torch.empty_like(self.grid)  # nn.Parameter(torch.Tensor(grid_size,in_dim), requires_grad=False)
+        sigmas = torch.empty_like(self._grid)  # nn.Parameter(torch.Tensor(grid_size,in_dim), requires_grad=False)
         self.register_buffer("sigmas", sigmas)
         self.get_sigmas_from_grid()
         # Choose which parametrization to use
@@ -332,7 +347,7 @@ class RBFKANLayer(BasisKANLayer):
 
     def reset_parameters(self):
         super(RBFKANLayer, self).reset_parameters()
-        # self.grid = torch.linspace(self.grid_range[0], self.grid_range[1], self.grid_size)
+        self.grid = torch.linspace(self.grid_range[0], self.grid_range[1], self.grid_size)
 
         # init.trunc_normal_(self.sigmas, mean=self.scale_base, std=1.0)
 
@@ -361,7 +376,7 @@ class RBFKANLayer(BasisKANLayer):
         grid_uniform = torch.arange(self.grid_size, dtype=x.dtype, device=x.device).unsqueeze(1) * uniform_step + x_sorted[0] - margin
 
         grid = self.grid_alpha * grid_uniform + (1 - self.grid_alpha) * grid_adaptive
-        self.grid.copy_(grid)
+        self.grid = grid
         self.get_sigmas_from_grid()
         self.scaled_weights = self.curve2coeff(x, unreduced_basis_output)
 
@@ -545,7 +560,7 @@ class SplinesKANLayer(BasisKANLayer):
             dim=0,
         )
 
-        self.grid.copy_(grid)
+        self.grid = grid
         self.scaled_weights = self.curve2coeff(x, unreduced_basis_output)
 
     def get_subset(self, in_id, out_id, new_grid_size=None):  # TODO, en faire une par
