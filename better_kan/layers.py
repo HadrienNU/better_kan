@@ -335,8 +335,7 @@ class RBFKANLayer(BasisKANLayer):
         )
         self.optimize_grid = optimize_grid
         # Creating the parameters
-        h = (grid_range[1] - grid_range[0]) / grid_size
-        grid = (torch.arange(grid_size) * h + grid_range[0]).expand(self.reduced_in_dim, -1).transpose(0, 1).contiguous()
+        grid = torch.linspace(grid_range[0], grid_range[1], grid_size).expand(self.reduced_in_dim, -1).transpose(0, 1).contiguous()
         self._grid = nn.Parameter(grid, requires_grad=optimize_grid)
         # If optimizing over sigmas
         # self.sigmas = nn.Parameter(torch.Tensor(self.in_features, grid_size), requires_grad=False)
@@ -422,11 +421,11 @@ class RBFKANLayer(BasisKANLayer):
         return phi
 
     def matern32_rbf(self, distances):
-        phi = (torch.ones_like(distances) + 3 ** 0.5 * distances) * torch.exp(-(3 ** 0.5) * distances)
+        phi = (torch.ones_like(distances) + 3**0.5 * distances) * torch.exp(-(3**0.5) * distances)
         return phi
 
     def matern52_rbf(self, distances):
-        phi = (torch.ones_like(distances) + 5 ** 0.5 * distances + (5 / 3) * distances.pow(2)) * torch.exp(-(5 ** 0.5) * distances)
+        phi = (torch.ones_like(distances) + 5**0.5 * distances + (5 / 3) * distances.pow(2)) * torch.exp(-(5**0.5) * distances)
         return phi
 
     def get_subset(self, in_id, out_id, new_grid_size=None):
