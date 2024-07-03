@@ -142,13 +142,13 @@ def fit_params(x, y, fun, a_range=(-10, 10), b_range=(-10, 10), grid_number=101,
             if _ == 0 and verbose is True:
                 print("Best value at boundary.")
             if a_id == 0:
-                a_arange = [a_[0], a_[1]]
+                a_range = [a_[0], a_[1]]
             if a_id == grid_number - 1:
-                a_arange = [a_[-2], a_[-1]]
+                a_range = [a_[-2], a_[-1]]
             if b_id == 0:
-                b_arange = [b_[0], b_[1]]
+                b_range = [b_[0], b_[1]]
             if b_id == grid_number - 1:
-                b_arange = [b_[-2], b_[-1]]
+                b_range = [b_[-2], b_[-1]]
 
         else:
             a_range = [a_[a_id - 1], a_[a_id + 1]]
@@ -162,7 +162,7 @@ def fit_params(x, y, fun, a_range=(-10, 10), b_range=(-10, 10), grid_number=101,
     if verbose is True:
         print(f"r2 is {r2_best}")
         if r2_best < 0.9:
-            print(f"r2 is not very high, please double check if you are choosing the correct symbolic function.")
+            print(f"r2 ({r2_best}) is not very high, please double check if you are choosing the correct symbolic function.")
 
     post_fun = torch.nan_to_num(post_fun)
     reg = LinearRegression().fit(post_fun[:, None].detach().cpu().numpy(), y.detach().cpu().numpy())
@@ -177,9 +177,9 @@ class Symbolic_KANLayer(nn.Module):
 
     Attributes:
     -----------
-        in_dim: int
+        in_features: int
             input dimension
-        out_dim: int
+        out_features: int
             output dimension
         funs: 2D array of torch functions (or lambda functions)
             symbolic functions (torch)
@@ -202,7 +202,7 @@ class Symbolic_KANLayer(nn.Module):
             fix an activation function to be symbolic
     """
 
-    def __init__(self, in_dim=3, out_dim=2, device="cpu"):
+    def __init__(self, in_features=3, out_features=2):
         """
         initialize a Symbolic_KANLayer (activation functions are initialized to be identity functions)
 
@@ -226,9 +226,8 @@ class Symbolic_KANLayer(nn.Module):
         (3, 3)
         """
         super(Symbolic_KANLayer, self).__init__()
-        self.out_dim = out_dim
-        self.in_dim = in_dim
-        self.mask = torch.nn.Parameter(torch.zeros(out_dim, in_dim, device=device)).requires_grad_(False)
+        self.out_features = out_features
+        self.in_features = in_features
         # torch
         self.funs = [[lambda x: x for i in range(self.in_dim)] for j in range(self.out_dim)]
         # name
@@ -236,10 +235,7 @@ class Symbolic_KANLayer(nn.Module):
         # sympy
         self.funs_sympy = [["" for i in range(self.in_dim)] for j in range(self.out_dim)]
 
-        self.affine = torch.nn.Parameter(torch.zeros(out_dim, in_dim, 4, device=device))
-        # c*f(a*x+b)+d
-
-        self.device = device
+        self.affine = torch.nn.Parameter(torch.zeros(out_features, in_features, 4))  # parameters for c*f(a*x+b)+d
 
     def forward(self, x):
         """
@@ -266,20 +262,26 @@ class Symbolic_KANLayer(nn.Module):
         (torch.Size([100, 5]), torch.Size([100, 5, 3]))
         """
 
-        postacts = []
+        out_acts = []
 
-        for i in range(self.in_dim):
-            postacts_ = []
+        for i in range(self.in_dim):  # Since symbolic function are R -> R function, we call it one by one
+            out_acts_ = []
             for j in range(self.out_dim):
                 xij = self.affine[j, i, 2] * self.funs[j][i](self.affine[j, i, 0] * x[:, [i]] + self.affine[j, i, 1]) + self.affine[j, i, 3]
-                postacts_.append(self.mask[j][i] * xij)
-            postacts.append(torch.stack(postacts_))
+                # postacts_.append(self.mask[j][i] * xij)  # If mask is set
+                out_acts_.append(xij)
+            out_acts.append(torch.stack(out_acts_))
 
-        postacts = torch.stack(postacts)
-        postacts = postacts.permute(2, 1, 0, 3)[:, :, :, 0]
-        y = torch.sum(postacts, dim=2)
+        out_acts = torch.stack(out_acts)
+        out_acts = out_acts.permute(2, 1, 0, 3)[:, :, :, 0]
 
-        return y, postacts
+        self.min_vals = torch.min(x, dim=0).values
+        self.max_vals = torch.max(x, dim=0).values
+        self.l1_norm = torch.mean(torch.abs(out_acts), dim=0) / (self.max_vals - self.min_vals)  # out_dim x in_dim
+
+        output = torch.sum(out_acts, dim=2)
+
+        return output
 
     def get_subset(self, in_id, out_id):
         """
@@ -304,14 +306,65 @@ class Symbolic_KANLayer(nn.Module):
         (2, 3)
         """
         sbb = Symbolic_KANLayer(self.in_dim, self.out_dim, device=self.device)
-        sbb.in_dim = len(in_id)
+        sbb.in_features = len(in_id)
         sbb.out_dim = len(out_id)
-        sbb.mask.data = self.mask.data[out_id][:, in_id]
         sbb.funs = [[self.funs[j][i] for i in in_id] for j in out_id]
         sbb.funs_sympy = [[self.funs_sympy[j][i] for i in in_id] for j in out_id]
         sbb.funs_name = [[self.funs_name[j][i] for i in in_id] for j in out_id]
         sbb.affine.data = self.affine.data[out_id][:, in_id]
         return sbb
+
+    def set_from_another_layer(self, parent, fun_names, in_id=None, out_id=None, fit_params_bool=True, a_range=(-10, 10), b_range=(-10, 10), verbose=True, random=False):
+        """
+        set a smaller KANLayer from a larger KANLayer (used for pruning)
+
+
+        Args:
+        -----
+            newlayer : kan_layer
+                An input KANLayer to be set as a subset of this one
+            fun_name : array of str
+                function names
+            in_id : list
+                id of selected input neurons from the parent
+            out_id : list
+                id of selected output neurons from the parent
+            fit_params_bool : bool
+                obtaining affine parameters through fitting (True) or setting default values (False)
+            a_range : tuple
+                sweeping range of a
+            b_range : tuple
+                sweeping range of b
+            verbose : bool
+                If True, more information is printed.
+            random : bool
+                initialize affine parameteres randomly or as [1,0,1,0]
+
+        Returns:
+        --------
+            newlayer : KANLayer
+        """
+        if in_id is None:
+            in_id = torch.arange(parent.in_features)
+        if out_id is None:
+            out_id = torch.arange(parent.out_features)
+
+        assert len(in_id) == self.in_features
+        assert len(out_id) == self.out_features
+
+        if not fit_params_bool:
+            for i in in_id:
+                for j in out_id:
+                    self.fix_symbolic(i, j, fun_names[j][i], verbose=verbose, random=random)
+            return None
+        else:
+            x = parent.grid
+            y = parent.activations_eval(x)
+            r2 = torch.zeros(self.out_features, self.in_features)
+            for i in in_id:
+                for j in out_id:
+                    r2[j, i] = self.fix_symbolic(i, j, fun_names[j][i], x[:, i], y[:, j, i], a_range=a_range, b_range=b_range, verbose=verbose)
+            return r2
 
     def fix_symbolic(self, i, j, fun_name, x=None, y=None, random=False, a_range=(-10, 10), b_range=(-10, 10), verbose=True):
         """

@@ -256,7 +256,7 @@ class BasisKANLayer(torch.nn.Module):
 
         Args:
         -----
-            newlayer : kan_layer
+            parent : kan_layer
                 An input KANLayer to be set as a subset of this one
             in_id : list
                 id of selected input neurons
@@ -270,7 +270,7 @@ class BasisKANLayer(torch.nn.Module):
         Example
         -------
         >>> kanlayer_large = KANLayer(in_dim=10, out_dim=10, num=5, k=3)
-        >>> kanlayer_small = kanlayer_large.get_subset([0,9],[1,2,3])
+        >>> kanlayer_small = kanlayer_small.set_from_another_layer(kanlayer_large,[0,9],[1,2,3])
         >>> kanlayer_small.in_dim, kanlayer_small.out_dim
         (2, 3)
         """
