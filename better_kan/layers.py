@@ -217,7 +217,7 @@ class BasisKANLayer(torch.nn.Module):
         if hasattr(self, "l1_norm"):
             regularization_loss_activation = self.l1_norm.sum()
             p = self.l1_norm / regularization_loss_activation
-            regularization_loss_entropy = -torch.sum(p * p.log())
+            regularization_loss_entropy = -torch.sum(p * torch.log(p + 1e-6))  # Regularization to avoid 0 value
             return regularize_activation * regularization_loss_activation + regularize_entropy * regularization_loss_entropy
         else:
             return torch.tensor(0.0)
@@ -421,11 +421,11 @@ class RBFKANLayer(BasisKANLayer):
         return phi
 
     def matern32_rbf(self, distances):
-        phi = (torch.ones_like(distances) + 3**0.5 * distances) * torch.exp(-(3**0.5) * distances)
+        phi = (torch.ones_like(distances) + 3 ** 0.5 * distances) * torch.exp(-(3 ** 0.5) * distances)
         return phi
 
     def matern52_rbf(self, distances):
-        phi = (torch.ones_like(distances) + 5**0.5 * distances + (5 / 3) * distances.pow(2)) * torch.exp(-(5**0.5) * distances)
+        phi = (torch.ones_like(distances) + 5 ** 0.5 * distances + (5 / 3) * distances.pow(2)) * torch.exp(-(5 ** 0.5) * distances)
         return phi
 
     def get_subset(self, in_id, out_id, new_grid_size=None):
