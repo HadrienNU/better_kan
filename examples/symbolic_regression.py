@@ -4,7 +4,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 from better_kan import KAN, build_splines_layers, create_dataset, plot, train
-
+from better_kan.symbolic import Symbolic_KANLayer
 
 model = KAN(build_splines_layers([2, 5, 1], grid_size=5, fast_version=False))
 
@@ -36,9 +36,17 @@ plot(model, title="KAN_after training", tick=False)
 
 new_model = model.prune(mode="auto")
 
-new_model(dataset["train_input"])
+new_model(dataset["test_input"])
 
 
 plot(new_model, title="KAN after pruning", tick=False)
 
+
+# Replace both layer with symbolic expression
+symbolic_layers = [Symbolic_KANLayer(la.in_features, la.out_features) for la in new_model.layers]
+symbolic_layers[1].set_from_another_layer(new_model.layers[1], [["exp"]])
+symbolic_layers[0].set_from_another_layer(new_model.layers[0], [["auto", "auto"]])
+symbolic_kan = KAN(symbolic_layers)
+symbolic_kan.forward(dataset["test_input"])
+plot(symbolic_kan, title="Symbolic KAN", tick=False)
 plt.show()
