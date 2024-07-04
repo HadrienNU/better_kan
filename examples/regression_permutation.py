@@ -26,7 +26,7 @@ print(dataset["train_input"].shape, dataset["train_label"].shape)
 model(dataset["train_input"], update_grid=True)
 
 
-results = train(model, dataset, opt="Adam", steps=500, update_grid=True, stop_grid_update_step=450, grid_update_num=20, lamb=0.01, lr=1e-2)
+results = train(model, dataset, opt="Adam", steps=500, update_grid=True, stop_grid_update_step=450, grid_update_freq=50, lamb=0.01, lr=1e-2)
 
 plt.figure()
 

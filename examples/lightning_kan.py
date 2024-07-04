@@ -17,7 +17,7 @@ class KAN_Lightning(lightning.LightningModule):
         lamb_l1=1.0,
         lamb_entropy=1.0,
         update_grid=True,
-        grid_update_num=10,
+        grid_update_freq=10,
         stop_grid_update_step=50,
     ):
         super().__init__()
@@ -28,7 +28,7 @@ class KAN_Lightning(lightning.LightningModule):
         self.update_grid = update_grid
         self.stop_grid_update_step = stop_grid_update_step
 
-        self.grid_update_freq = int(stop_grid_update_step / grid_update_num)
+        self.grid_update_freq = grid_update_freq
 
     def training_step(self, batch, batch_idx):
         # training_step defines the train loop.

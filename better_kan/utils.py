@@ -13,7 +13,7 @@ def train(
     lamb_l1=1.0,
     lamb_entropy=1.0,
     update_grid=True,
-    grid_update_num=10,
+    grid_update_freq=50,
     loss_fn=None,
     lr=1.0,
     stop_grid_update_step=50,
@@ -75,14 +75,12 @@ def train(
     >>> model.plot()
     """
 
-    pbar = tqdm(range(steps), desc="description", ncols=100)
+    pbar = tqdm(range(steps), desc="description")
 
     if loss_fn is None:
         loss_fn = loss_fn_eval = lambda x, y: torch.mean((x - y) ** 2)
     else:
         loss_fn = loss_fn_eval = loss_fn
-
-    grid_update_freq = int(stop_grid_update_step / grid_update_num)
 
     if opt == "Adam":
         optimizer = torch.optim.Adam(kan.parameters(), lr=lr)
