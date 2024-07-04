@@ -22,7 +22,7 @@ def svd_lstsq(AA, BB, tol=1e-12):
     U, S, Vh = torch.linalg.svd(AA, full_matrices=False)
     Spinv = torch.zeros_like(S)
 
-    Spinv[S > tol] = 1 / S[S > tol * max(AA.shape) * S[0]]
+    Spinv[S > tol * max(AA.shape) * S[0]] = 1 / S[S > tol * max(AA.shape) * S[0]]
     UhBB = U.adjoint() @ BB
     if Spinv.ndim != UhBB.ndim:
         Spinv = Spinv.unsqueeze(-1)
@@ -47,6 +47,9 @@ class BasisKANLayer(torch.nn.Module):
         sbasis_trainable=True,
         bias_trainable=True,
         fast_version=False,
+        auto_grid_update=False,  # Do we auto update the grid
+        auto_grid_allow_outside_points=0.1,
+        auto_grid_allow_empty_bins=1,
     ):
         super(BasisKANLayer, self).__init__()
         self.in_features = in_features
@@ -80,6 +83,11 @@ class BasisKANLayer(torch.nn.Module):
         self.base_activation = base_activation()
 
         self.set_speed_mode(fast_version)
+
+        # For automatic grid update
+        self.auto_grid_update = auto_grid_update
+        self.auto_grid_allow_outside_points = auto_grid_allow_outside_points
+        self.auto_grid_allow_empty_bins = auto_grid_allow_empty_bins
 
     def reset_parameters(self):
         # torch.nn.init.kaiming_uniform_(self.base_weight, a=np.sqrt(5) * self.scale_base)
@@ -171,6 +179,9 @@ class BasisKANLayer(torch.nn.Module):
         self._grid.copy_(new_grid)
 
     def forward_fast(self, x: torch.Tensor):
+        if self.auto_grid_update:
+            if self.trigger_grid_update():
+                self.update_grid(x)
         # Fast version that does not allow for regularisation
         original_shape = x.shape
         x = x.view(-1, self.in_features)
@@ -185,7 +196,9 @@ class BasisKANLayer(torch.nn.Module):
         return output
 
     def forward_slow(self, x: torch.Tensor):
-
+        if self.auto_grid_update:
+            if self.trigger_grid_update(x):
+                self.update_grid(x)
         original_shape = x.shape
         out_acts = self.activations_eval(x)
         # Somes statistics for regularisation and plot
@@ -226,6 +239,19 @@ class BasisKANLayer(torch.nn.Module):
         grid = self.grid_alpha * grid_uniform + (1 - self.grid_alpha) * grid_adaptive
         self.grid = grid
         self.scaled_weights = self.curve2coeff(x, unreduced_basis_output)
+
+    @torch.no_grad()
+    def trigger_grid_update(self, x: torch.Tensor):
+        """
+        Compute proportion of input that are out of the grid
+        That would trigger automatic grid update
+        """
+
+        in_bins = ((x.unsqueeze(1) >= self.grid[:-1, :]) & (x.unsqueeze(1) < self.grid[1:, :])).to(x.dtype).sum(dim=0)  # If we want to check if there is a lot of empty bins
+        nb_empty_bins = (in_bins == 0).sum(dim=0)
+
+        out_points = torch.logical_or((x >= self.grid[-1, :]), (x < self.grid[0, :])).mean(dim=0, dtype=torch.float64)
+        return torch.any(out_points > self.auto_grid_allow_outside_points) or torch.any(nb_empty_bins > self.auto_grid_allow_empty_bins)  # If too many points
 
     def regularization_loss(self, regularize_activation=1.0, regularize_entropy=1.0):
         """
@@ -331,6 +357,9 @@ class RBFKANLayer(BasisKANLayer):
         sbasis_trainable=True,
         bias_trainable=True,
         fast_version=False,
+        auto_grid_update=False,
+        auto_grid_allow_outside_points=0.8,
+        auto_grid_allow_empty_bins=5,
     ):
         super(RBFKANLayer, self).__init__(
             in_features,
@@ -347,6 +376,9 @@ class RBFKANLayer(BasisKANLayer):
             sbasis_trainable,
             bias_trainable,
             fast_version,
+            auto_grid_update,
+            auto_grid_allow_outside_points,
+            auto_grid_allow_empty_bins,
         )
         self.optimize_grid = optimize_grid
         # Creating the parameters
@@ -505,6 +537,9 @@ class SplinesKANLayer(BasisKANLayer):
         sbasis_trainable=True,
         bias_trainable=True,
         fast_version=False,
+        auto_grid_update=False,
+        auto_grid_allow_outside_points=0.01,
+        auto_grid_allow_empty_bins=1,
     ):
         super(SplinesKANLayer, self).__init__(
             in_features,
@@ -521,6 +556,9 @@ class SplinesKANLayer(BasisKANLayer):
             sbasis_trainable,
             bias_trainable,
             fast_version,
+            auto_grid_update,
+            auto_grid_allow_outside_points,
+            2 * self.spline_order - 1 + auto_grid_allow_empty_bins,
         )
         self.spline_order = spline_order
 
@@ -643,6 +681,8 @@ class ChebyshevKANLayer(BasisKANLayer):
         sbasis_trainable=True,
         bias_trainable=True,
         fast_version=False,
+        auto_grid_update=False,
+        auto_grid_allow_outside_points=0.5,
     ):
         super(ChebyshevKANLayer, self).__init__(
             in_features,
@@ -659,6 +699,9 @@ class ChebyshevKANLayer(BasisKANLayer):
             sbasis_trainable,
             bias_trainable,
             fast_version,
+            auto_grid_update,
+            auto_grid_allow_outside_points,
+            grid_size,  # This cancel the trigger on auto_grid_allow_empty_bins
         )
         self.chebyshev_order = chebyshev_order
 
