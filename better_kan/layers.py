@@ -14,6 +14,22 @@ def mask_subset(mask, in_id=None):
     return mask[mask.sum(1).to(dtype=torch.bool), :]  # Remove entry that does not matter
 
 
+def svd_lstsq(AA, BB, tol=1e-12):
+    """
+    Workaround to SVD when on CUDA, to allow lstsq on rank-deficient matrices
+    Waiting for PR https://github.com/pytorch/pytorch/pull/126652 to be merged
+    """
+    U, S, Vh = torch.linalg.svd(AA, full_matrices=False)
+    Spinv = torch.zeros_like(S)
+
+    Spinv[S > tol] = 1 / S[S > tol * max(AA.shape) * S[0]]
+    UhBB = U.adjoint() @ BB
+    if Spinv.ndim != UhBB.ndim:
+        Spinv = Spinv.unsqueeze(-1)
+    SpinvUhBB = Spinv * UhBB
+    return Vh.adjoint() @ SpinvUhBB
+
+
 class BasisKANLayer(torch.nn.Module):
     def __init__(
         self,
@@ -109,7 +125,10 @@ class BasisKANLayer(torch.nn.Module):
 
         A = self.basis(x).permute(2, 0, 1)  # (in_features, batch_size, n_basis_function)
         B = y.transpose(0, 1)  # (in_features, batch_size, out_features)
-        solution = torch.linalg.lstsq(A, B).solution  # (in_features, n_basis_function, out_features)
+        if A.device == "cpu":
+            solution = torch.linalg.lstsq(A, B).solution  # (in_features, n_basis_function, out_features)
+        else:
+            solution = svd_lstsq(A, B)
         result = solution.permute(2, 1, 0)  # (out_features, n_basis_function, in_features)
 
         assert result.size() == (
