@@ -3,8 +3,10 @@ import torch.nn as nn
 import numpy as np
 import matplotlib.pyplot as plt
 
-from better_kan import create_dataset, KAN, build_splines_layers, train, plot
+from better_kan import create_dataset, KAN, build_rbf_layers, train, plot, update_plot
 
+
+plt.ion()  # turning interactive mode on
 
 f = lambda x: torch.exp(torch.sin(torch.pi * x[:, [0]]) + x[:, [1]] ** 2)
 dataset = create_dataset(f, n_var=2)
@@ -16,16 +18,21 @@ grids = np.array([5, 10, 20, 50, 100])
 train_losses = []
 test_losses = []
 steps = 75
-k = 3
+
+
+model = KAN(build_rbf_layers([2, 1, 1], grid_size=grids[0], optimize_grid=False))
+model.forward(dataset["test_input"])
+inserts_axes, act_lines = plot(model, title="during training", tick=False)
+plt.pause(0.25)  # Allow enough time for plot to draw
 
 for i in range(grids.shape[0]):
-    if i == 0:
-        model = KAN(build_splines_layers([2, 1, 1], grid_size=grids[i], spline_order=k))
     if i != 0:
-        model = KAN(build_splines_layers([2, 1, 1], grid_size=grids[i], spline_order=k)).initialize_from_another_model(model)
-    results = train(model, dataset, opt="LBFGS", steps=steps, stop_grid_update_step=50, update_grid=None, lamb=0.0)
+        model = KAN(build_rbf_layers([2, 1, 1], grid_size=grids[i], optimize_grid=False)).initialize_from_another_model(model)
+    results = train(model, dataset, opt="LBFGS", steps=steps, update_grid=True, lamb=0.0)
     train_losses += results["train_loss"]
     test_losses += results["test_loss"]
+    update_plot(model, inserts_axes, act_lines)
+    plt.pause(0.25)  # Allow enough time for plot to redraw
 
 plt.figure()
 plt.plot(train_losses)
@@ -47,6 +54,8 @@ plt.yscale("log")
 plt.legend(["train", "test", r"$N^{-4}$"])
 plt.xlabel("number of params")
 plt.ylabel("RMSE")
+
+plt.ioff()  # turning interactive mode off
 
 plot(model, title="KAN_after training", tick=False)
 plt.show()

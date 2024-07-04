@@ -235,7 +235,12 @@ def plot(kan, beta=3, mask=False, scale=1.0, tick=False, in_vars=None, out_vars=
         return np.tanh(beta * score)
 
     # Add insert plot of each activation functions
+    inserts_axes = []
+    act_lines = []
+
     for la in range(depth):
+        inserts_axes.append([[None for _ in range(kan.width[la + 1])] for _ in range(kan.width[la])])
+        act_lines.append([[None for _ in range(kan.width[la + 1])] for _ in range(kan.width[la])])
         if hasattr(kan.layers[la], "l1_norm"):
             alpha = score2alpha(kan.layers[la].l1_norm.cpu().detach().numpy())
             # Take for ranges, either the extremal of the centers or the min/max of the data
@@ -243,6 +248,8 @@ def plot(kan, beta=3, mask=False, scale=1.0, tick=False, in_vars=None, out_vars=
             x_in = torch.stack(ranges, dim=1)
             acts_vals = kan.layers[la].activations_eval(x_in).cpu().detach().numpy()
             x_ranges = x_in.cpu().detach().numpy()
+            # Take mask into account
+            mask_la = kan.layers[la].mask.cpu().detach().numpy()  # L'idée c'est d'avoir mask [i][j] = True/False pour savoir si on plot
             for i in range(kan.width[la]):
                 for j in range(kan.width[la + 1]):
                     u, v = (la, i), (la + 1, j)
@@ -266,10 +273,11 @@ def plot(kan, beta=3, mask=False, scale=1.0, tick=False, in_vars=None, out_vars=
                         for label in inset_ax.get_xticklabels() + inset_ax.get_yticklabels():
                             label.set_alpha(alpha[j, i])
 
-                    inset_ax.plot(x_ranges[:, i], acts_vals[:, j, i], "-", color="red", alpha=alpha[j, i])
+                    act_lines[la][i][j] = inset_ax.plot(x_ranges[:, i], acts_vals[:, j, i], "-", color="red", alpha=alpha[j, i])[0]
                     for spine in inset_ax.spines.values():
                         spine.set_alpha(alpha[j, i])
                     inset_ax.patch.set_alpha(alpha[j, i])
+                    inserts_axes[la][i][j] = inset_ax
         else:
             for i in range(kan.width[la]):
                 for j in range(kan.width[la + 1]):
@@ -278,6 +286,81 @@ def plot(kan, beta=3, mask=False, scale=1.0, tick=False, in_vars=None, out_vars=
 
     if title is not None:
         ax.set_title(title)
+    return inserts_axes, act_lines
+
+
+def update_plot(kan, inserts_axes, act_lines, beta=3, tick=False):
+    """
+    plot KAN. Before plot, kan(x) should be run on a typical input to collect statistics on activations functions.
+
+    Args:
+    -----
+        beta : float
+            positive number. control the transparency of each activation. transparency = tanh(beta*l1).
+        mask : bool
+            If True, plot with mask (need to run prune() first to obtain mask). If False (by default), plot all activation functions.
+        mode : bool
+            "supervised" or "unsupervised". If "supervised", l1 is measured by absolution value (not subtracting mean); if "unsupervised", l1 is measured by standard deviation (subtracting mean).
+        scale : float
+            control the size of the insert plot of the activation functions
+        in_vars: None or list of str
+            the name(s) of input variables
+        out_vars: None or list of str
+            the name(s) of output variables
+        title: None or str
+            title
+
+    Returns:
+    --------
+        Figure
+
+    Example
+    -------
+    >>> # see more interactive examples in demos
+    >>> model = KAN(width=[2,3,1], grid=3, k=3, noise_scale=1.0)
+    >>> x = torch.normal(0,1,size=(100,2))
+    >>> model(x) # do a forward pass to obtain model.acts
+    >>> model.plot()
+    """
+
+    import matplotlib.pyplot as plt
+
+    depth = len(kan.width) - 1
+
+    def score2alpha(score):
+        return np.tanh(beta * score)
+
+    for la in range(depth):
+        if hasattr(kan.layers[la], "l1_norm"):
+            alpha = score2alpha(kan.layers[la].l1_norm.cpu().detach().numpy())
+            # Take for ranges, either the extremal of the centers or the min/max of the data
+            ranges = [torch.linspace(kan.layers[la].min_vals[d], kan.layers[la].max_vals[d], 150) for d in range(kan.width[la])]
+            x_in = torch.stack(ranges, dim=1)
+            acts_vals = kan.layers[la].activations_eval(x_in).cpu().detach().numpy()
+            x_ranges = x_in.cpu().detach().numpy()
+            # Take mask into account
+            mask_la = kan.layers[la].mask.cpu().detach().numpy()  # L'idée c'est d'avoir mask [i][j] = True/False pour savoir si on plot
+            for i in range(kan.width[la]):
+                for j in range(kan.width[la + 1]):
+                    inset_ax = inserts_axes[la][i][j]
+                    if tick is False:
+                        inset_ax.set_xticks([])
+                        inset_ax.set_yticks([])
+                    else:
+                        inset_ax.tick_params(axis="both", which="both", length=0)  # Rendre les ticks invisibles
+
+                        for label in inset_ax.get_xticklabels() + inset_ax.get_yticklabels():
+                            label.set_alpha(alpha[j, i])
+                    act_lines[la][i][j].set_xdata(x_ranges[:, i])
+                    act_lines[la][i][j].set_ydata(acts_vals[:, j, i])
+                    act_lines[la][i][j].set_alpha(alpha[j, i])
+
+                    inset_ax.set_xlim(x_ranges[0, i], x_ranges[-1, i])
+                    inset_ax.set_ylim(acts_vals[:, j, i].min(), acts_vals[:, j, i].max())
+                    # act_lines[i][j] = inset_ax.plot(x_ranges[:, i], acts_vals[:, j, i], "-", color="red", alpha=alpha[j, i])
+                    for spine in inset_ax.spines.values():
+                        spine.set_alpha(alpha[j, i])
+                    inset_ax.patch.set_alpha(alpha[j, i])
 
 
 def create_dataset(f, n_var=2, ranges=[-1, 1], train_num=1000, test_num=1000, normalize_input=False, normalize_label=False, seed=0):
