@@ -3,7 +3,7 @@ import torch.nn as nn
 import numpy as np
 import matplotlib.pyplot as plt
 
-from better_kan import KAN, build_rbf_layers, create_dataset, plot, train
+from better_kan import KAN, build_splines_layers, create_dataset, plot, train
 
 
 def mask_subset(mask, in_id=None):
@@ -16,7 +16,7 @@ def mask_subset(mask, in_id=None):
 
 
 # Build model with some permutation invariant input
-model = KAN(build_rbf_layers([7, 4, 1], grid_size=5, permutation_invariants=[0, 1, 1, 1, 1, 2, 2]))  #
+model = KAN(build_splines_layers([7, 4, 1], grid_size=5, permutation_invariants=[0, 1, 1, 1, 1, 2, 2]))  #
 
 
 f = lambda x: 1 / (1 + torch.exp(-(torch.sin(torch.pi * x[:, [0]]) + x[:, [1]] ** 2 + x[:, [2]] ** 2 + x[:, [3]] ** 2 + x[:, [4]] ** 2 - (x[:, [5]] - x[:, [6]]).abs() ** 0.5)))
@@ -26,7 +26,7 @@ print(dataset["train_input"].shape, dataset["train_label"].shape)
 model(dataset["train_input"], update_grid=True)
 
 
-results = train(model, dataset, opt="Adam", steps=500, update_grid=True, stop_grid_update_step=450, grid_update_freq=50, lamb=0.01, lr=1e-2)
+results = train(model, dataset, opt="Adam", steps=1500, update_grid=True, stop_grid_update_step=1450, grid_update_freq=50, lamb=0.01, lr=1e-2)
 
 plt.figure()
 
@@ -39,7 +39,7 @@ plt.xlabel("step")
 plt.yscale("log")
 
 
-plot(model, title="KAN_after training", tick=False)
+plot(model, title="KAN_after training", tick=False, norm_alpha=True)
 
 new_model = model.prune(mode="auto")
 

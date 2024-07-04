@@ -126,7 +126,7 @@ class KAN(torch.nn.Module):
         """
         pruning KAN on the node level. If a node has small incoming or outgoing connection, it will be pruned away.
 
-        Current KAN is unchanged bu it return a new pruned model.
+        Current KAN is unchanged but it return a new pruned model.
 
         Args:
         -----
@@ -165,7 +165,7 @@ class KAN(torch.nn.Module):
                 elif mode == "manual":
                     overall_important = torch.zeros(self.width[i + 1], dtype=torch.bool)
                     overall_important[active_neurons_id[i]] = True
-                active_neurons.append(torch.where(overall_important == True)[0])
+                active_neurons.append(torch.where(overall_important == True)[0].to(device=self.layers[i].weights.device))
             else:
                 active_neurons.append(list(range(self.width[i + 1])))
         active_neurons.append(list(range(self.width[-1])))

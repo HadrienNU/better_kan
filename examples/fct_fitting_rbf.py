@@ -55,7 +55,7 @@ plt.legend(["train", "test", r"$N^{-4}$"])
 plt.xlabel("number of params")
 plt.ylabel("RMSE")
 
-plt.ioff()  # turning interactive mode off
+plt.ioff()  # turning interactive mode off to have blocking plt.show()
 
 plot(model, title="KAN_after training", tick=False)
 plt.show()

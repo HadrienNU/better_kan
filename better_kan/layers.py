@@ -184,11 +184,9 @@ class BasisKANLayer(torch.nn.Module):
 
         assert x.size(-1) == self.in_features
         x = x.view(-1, self.in_features)
-
         base_output = self.base_activation(x).unsqueeze(1) * self.scaled_base_weight.unsqueeze(0)
 
         acts_output = torch.einsum("xbi,obi->xoi", self.basis(x), self.scaled_weights)  # Here is the bottleneck of performance
-
         output = base_output + acts_output
         return output
 
@@ -279,13 +277,11 @@ class BasisKANLayer(torch.nn.Module):
         in_id_bool = (parent.mask[:, in_id]).sum(1).to(dtype=torch.bool)
         if out_id is None:
             out_id = torch.arange(self.out_features)
-        # Gérer le mask
+
         self.bias.data.copy_(parent.bias[out_id])
         self.base_scaler.data.copy_(parent.base_scaler[out_id][:, in_id_bool])
         self.basis_scaler.data.copy_(parent.basis_scaler[out_id][:, in_id_bool])
         self.initialize_grid_from_parent(parent, in_id, out_id)  # This will set grid and weights for the basis
-
-        # newlayer.mask.data.copy_()
 
         return self
 
@@ -484,7 +480,7 @@ class SplinesKANLayer(BasisKANLayer):
         scale_base=1.0,
         scale_basis=1.0,
         base_activation=torch.nn.SiLU,
-        grid_alpha=0.02,
+        grid_alpha=0.02,  # !!! Ensure grid_alpha is small enough when running on CUDA to avoid singular basis matrices
         grid_range=[-1, 1],
         sb_trainable=True,
         sbasis_trainable=True,
