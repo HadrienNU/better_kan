@@ -1,6 +1,7 @@
 """
 Symbolic KAN layer, adapted from pyKAN
 """
+
 import numpy as np
 import torch
 import torch.nn as nn
@@ -12,13 +13,13 @@ from sklearn.linear_model import LinearRegression
 # name: (torch implementation, sympy implementation)
 SYMBOLIC_LIB = {
     "x": (lambda x: x, lambda x: x),
-    "x^2": (lambda x: x ** 2, lambda x: x ** 2),
-    "x^3": (lambda x: x ** 3, lambda x: x ** 3),
-    "x^4": (lambda x: x ** 4, lambda x: x ** 4),
+    "x^2": (lambda x: x**2, lambda x: x**2),
+    "x^3": (lambda x: x**3, lambda x: x**3),
+    "x^4": (lambda x: x**4, lambda x: x**4),
     "1/x": (lambda x: 1 / x, lambda x: 1 / x),
-    "1/x^2": (lambda x: 1 / x ** 2, lambda x: 1 / x ** 2),
-    "1/x^3": (lambda x: 1 / x ** 3, lambda x: 1 / x ** 3),
-    "1/x^4": (lambda x: 1 / x ** 4, lambda x: 1 / x ** 4),
+    "1/x^2": (lambda x: 1 / x**2, lambda x: 1 / x**2),
+    "1/x^3": (lambda x: 1 / x**3, lambda x: 1 / x**3),
+    "1/x^4": (lambda x: 1 / x**4, lambda x: 1 / x**4),
     "sqrt": (lambda x: torch.sqrt(x), lambda x: sympy.sqrt(x)),
     "1/sqrt(x)": (lambda x: 1 / torch.sqrt(x), lambda x: 1 / sympy.sqrt(x)),
     "exp": (lambda x: torch.exp(x), lambda x: sympy.exp(x)),
@@ -34,7 +35,7 @@ SYMBOLIC_LIB = {
     "arctan": (lambda x: torch.arctan(x), lambda x: sympy.atan(x)),
     "arctanh": (lambda x: torch.arctanh(x), lambda x: sympy.atanh(x)),
     "0": (lambda x: x * 0, lambda x: x * 0),
-    "gaussian": (lambda x: torch.exp(-(x ** 2)), lambda x: sympy.exp(-(x ** 2))),
+    "gaussian": (lambda x: torch.exp(-(x**2)), lambda x: sympy.exp(-(x**2))),
     "cosh": (lambda x: torch.cosh(x), lambda x: sympy.cosh(x)),
     #'logcosh': (lambda x: torch.log(torch.cosh(x)), lambda x: sympy.log(sympy.cosh(x))),
     #'cosh^2': (lambda x: torch.cosh(x)**2, lambda x: sympy.cosh(x)**2),
@@ -216,7 +217,7 @@ def suggest_symbolic(x, y, a_range=(-10, 10), b_range=(-10, 10), lib=None, topk=
         for item in lib:
             symbolic_lib[item] = SYMBOLIC_LIB[item]
 
-    for (name, fun) in symbolic_lib.items():
+    for name, fun in symbolic_lib.items():
         _, r2 = fit_params(x, y, fun[0], a_range=a_range, b_range=b_range, verbose=False)
         r2s.append(r2.item())
 
@@ -293,7 +294,7 @@ class Symbolic_KANLayer(nn.Module):
         if mask is not None:
             raise NotImplementedError()
             self.reduced_in_dim = mask.shape[0]
-            assert mask.shape[1] == self.in_features
+            torch._assert(mask.shape[1] == self.in_features, "  Mask should be defined for all inputs")
 
         else:
             self.reduced_in_dim = self.in_features
@@ -417,7 +418,9 @@ class Symbolic_KANLayer(nn.Module):
         sbb.affine.data = self.affine.data[out_id][:, in_id]
         return sbb
 
-    def set_from_another_layer(self, parent, fun_names, in_id=None, out_id=None, fit_params_bool=True, a_range=(-10, 10), b_range=(-10, 10), verbose=True, random=False, lib=None):
+    def set_from_another_layer(
+        self, parent, fun_names, in_id=None, out_id=None, fit_params_bool=True, a_range=(-10, 10), b_range=(-10, 10), verbose=True, random=False, lib=None
+    ):
         """
         set a smaller KANLayer from a larger KANLayer (used for pruning)
 
@@ -452,8 +455,8 @@ class Symbolic_KANLayer(nn.Module):
         if out_id is None:
             out_id = torch.arange(parent.out_features)
 
-        assert len(in_id) == self.in_features
-        assert len(out_id) == self.out_features
+        torch._assert(len(in_id) == self.in_features, "Subset size should match layer size")
+        torch._assert(len(out_id) == self.out_features, "Subset size should match layer size")
 
         if not fit_params_bool:
             for i in in_id:

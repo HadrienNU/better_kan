@@ -59,7 +59,7 @@ class BasisKANLayer(torch.nn.Module):
 
         if mask is not None:
             self.reduced_in_dim = mask.shape[0]
-            assert mask.shape[1] == self.in_features
+            torch._assert(mask.shape[1] == self.in_features, "  Mask should be defined for all inputs")
 
         else:
             self.reduced_in_dim = self.in_features
@@ -113,7 +113,7 @@ class BasisKANLayer(torch.nn.Module):
         Returns:
             torch.Tensor: B-spline bases tensor of shape (batch_size, grid_size + spline_order, in_features).
         """
-        assert x.dim() == 2 and x.size(1) == self.in_features
+        torch._assert(x.dim() == 2 and x.size(1) == self.in_features, "Input dimension does not match layer size")
 
         raise NotImplementedError
 
@@ -128,8 +128,8 @@ class BasisKANLayer(torch.nn.Module):
         Returns:
             torch.Tensor: Coefficients tensor of shape (out_features, in_features, grid_size + spline_order).
         """
-        assert x.dim() == 2 and x.size(1) == self.in_features
-        assert y.size() == (x.size(0), self.in_features, self.out_features)
+        torch._assert(x.dim() == 2 and x.size(1) == self.in_features, "Input dimension does not match layer size")
+        torch._assert(y.size() == (x.size(0), self.in_features, self.out_features), " Output tensor sizes does not match expectation")
 
         A = self.basis(x).permute(2, 0, 1)  # (in_features, batch_size, n_basis_function)
         B = y.transpose(0, 1)  # (in_features, batch_size, out_features)
@@ -139,10 +139,14 @@ class BasisKANLayer(torch.nn.Module):
             solution = svd_lstsq(A, B)
         result = solution.permute(2, 1, 0)  # (out_features, n_basis_function, in_features)
 
-        assert result.size() == (
-            self.out_features,
-            self.n_basis_function,
-            self.in_features,
+        torch._assert(
+            result.size()
+            == (
+                self.out_features,
+                self.n_basis_function,
+                self.in_features,
+            ),
+            "result sizes does not match expectation",
         )
         return result.contiguous()
 
@@ -214,7 +218,7 @@ class BasisKANLayer(torch.nn.Module):
         Slower evaluation but useful for plotting
         """
 
-        assert x.size(-1) == self.in_features
+        torch._assert(x.size(-1) == self.in_features, "Input dimension does not match layer size")
         x = x.view(-1, self.in_features)
         base_output = self.base_activation(x).unsqueeze(1) * self.scaled_base_weight.unsqueeze(0)
 
@@ -224,7 +228,7 @@ class BasisKANLayer(torch.nn.Module):
 
     @torch.no_grad()
     def update_grid(self, x: torch.Tensor, margin=0.01):
-        assert x.dim() == 2 and x.size(1) == self.in_features
+        torch._assert(x.dim() == 2 and x.size(1) == self.in_features, "Input dimension does not match layer size")
         batch = x.size(0)
         basis_values = self.basis(x)
         unreduced_basis_output = torch.sum(basis_values.unsqueeze(1) * self.scaled_weights.unsqueeze(0), dim=2)  # (batch, out, in)
@@ -247,7 +251,9 @@ class BasisKANLayer(torch.nn.Module):
         That would trigger automatic grid update
         """
 
-        in_bins = ((x.unsqueeze(1) >= self.grid[:-1, :]) & (x.unsqueeze(1) < self.grid[1:, :])).to(x.dtype).sum(dim=0)  # If we want to check if there is a lot of empty bins
+        in_bins = (
+            ((x.unsqueeze(1) >= self.grid[:-1, :]) & (x.unsqueeze(1) < self.grid[1:, :])).to(x.dtype).sum(dim=0)
+        )  # If we want to check if there is a lot of empty bins
         nb_empty_bins = (in_bins == 0).sum(dim=0)
 
         out_points = torch.logical_or((x >= self.grid[-1, :]), (x < self.grid[0, :])).mean(dim=0, dtype=torch.float64)
@@ -415,7 +421,7 @@ class RBFKANLayer(BasisKANLayer):
 
     @torch.no_grad()
     def update_grid(self, x: torch.Tensor, margin=0.01):
-        assert x.dim() == 2 and x.size(1) == self.in_features
+        torch._assert(x.dim() == 2 and x.size(1) == self.in_features, "Input dimension does not match layer size")
         batch = x.size(0)
         basis_values = self.basis(x)
         unreduced_basis_output = torch.sum(basis_values.unsqueeze(1) * self.scaled_weights.unsqueeze(0), dim=2)  # (batch, out, in)
@@ -468,11 +474,11 @@ class RBFKANLayer(BasisKANLayer):
         return phi
 
     def matern32_rbf(self, distances):
-        phi = (torch.ones_like(distances) + 3 ** 0.5 * distances) * torch.exp(-(3 ** 0.5) * distances)
+        phi = (torch.ones_like(distances) + 3**0.5 * distances) * torch.exp(-(3**0.5) * distances)
         return phi
 
     def matern52_rbf(self, distances):
-        phi = (torch.ones_like(distances) + 5 ** 0.5 * distances + (5 / 3) * distances.pow(2)) * torch.exp(-(5 ** 0.5) * distances)
+        phi = (torch.ones_like(distances) + 5**0.5 * distances + (5 / 3) * distances.pow(2)) * torch.exp(-(5**0.5) * distances)
         return phi
 
     def get_subset(self, in_id, out_id, new_grid_size=None):
@@ -578,23 +584,29 @@ class SplinesKANLayer(BasisKANLayer):
         Returns:
             torch.Tensor: B-spline bases tensor of shape (batch_size, grid_size + spline_order, in_features).
         """
-        assert x.dim() == 2 and x.size(1) == self.in_features
+        torch._assert(x.dim() == 2 and x.size(1) == self.in_features, "Input dimension does not match layer size")
 
         grid: torch.Tensor = self.grid  # (grid_size + 2 * spline_order + 1, in_features)
         x = x.unsqueeze(1)
         bases = ((x >= grid[:-1, :]) & (x < grid[1:, :])).to(x.dtype)
         for k in range(1, self.spline_order + 1):
-            bases = ((x - grid[: -(k + 1), :]) / (grid[k:-1, :] - grid[: -(k + 1), :]) * bases[:, :-1, :]) + ((grid[k + 1 :, :] - x) / (grid[k + 1 :, :] - grid[1:(-k), :]) * bases[:, 1:, :])
-        assert bases.size() == (
-            x.size(0),
-            self.n_basis_function,
-            self.in_features,
+            bases = ((x - grid[: -(k + 1), :]) / (grid[k:-1, :] - grid[: -(k + 1), :]) * bases[:, :-1, :]) + (
+                (grid[k + 1 :, :] - x) / (grid[k + 1 :, :] - grid[1:(-k), :]) * bases[:, 1:, :]
+            )
+        torch._assert(
+            bases.size()
+            == (
+                x.size(0),
+                self.n_basis_function,
+                self.in_features,
+            ),
+            "Basis size not matching expectation",
         )
         return bases  # .contiguous()
 
     @torch.no_grad()
     def update_grid(self, x: torch.Tensor, margin=0.01):
-        assert x.dim() == 2 and x.size(1) == self.in_features
+        torch._assert(x.dim() == 2 and x.size(1) == self.in_features, "Input dimension does not match layer size")
         batch = x.size(0)
 
         basis_values = self.basis(x)
@@ -725,7 +737,7 @@ class ChebyshevKANLayer(BasisKANLayer):
         Returns:
             torch.Tensor: Chebyshev bases tensor of shape (batch_size, chebyshev_order, in_features).
         """
-        assert x.dim() == 2 and x.size(1) == self.in_features
+        torch._assert(x.dim() == 2 and x.size(1) == self.in_features, "Input dimension does not match layer size")
         x = torch.tanh((x - (self.grid[0, :] + self.grid[-1, :])) / (self.grid[-1, :] - self.grid[0, :]))  # Rescale into grid
         # View and repeat input degree + 1 times
         x = x.view((-1, self.in_features, 1)).expand(-1, -1, self.chebyshev_order + 1)  # shape = (batch_size, in_features, self.degree + 1)
