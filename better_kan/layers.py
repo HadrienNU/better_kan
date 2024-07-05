@@ -85,7 +85,8 @@ class BasisKANLayer(torch.nn.Module):
         self.set_speed_mode(fast_version)
 
         # For automatic grid update
-        self.auto_grid_update = auto_grid_update
+        self.auto_grid_update = False  # Train mode is False at initialization
+        self._auto_grid_update_params = auto_grid_update
         self.auto_grid_allow_outside_points = auto_grid_allow_outside_points
         self.auto_grid_allow_empty_bins = auto_grid_allow_empty_bins
 
@@ -102,6 +103,9 @@ class BasisKANLayer(torch.nn.Module):
             noise = (torch.rand(self.grid.shape[0], self.reduced_in_dim, self.out_features) - 1 / 2) * self.scale_noise / self.n_basis_function
             noise = torch.einsum("ijk,jl->ilk", noise, self.mask)
             self.scaled_weights = self.curve2coeff(self.grid, noise)
+
+    def train(self, mode: bool):
+        self.auto_grid_update = mode and self._auto_grid_update_params
 
     def basis(self, x: torch.Tensor):
         """
@@ -133,7 +137,7 @@ class BasisKANLayer(torch.nn.Module):
 
         A = self.basis(x).permute(2, 0, 1)  # (in_features, batch_size, n_basis_function)
         B = y.transpose(0, 1)  # (in_features, batch_size, out_features)
-        if A.device == "cpu":
+        if A.device == "cpu" or True:
             solution = torch.linalg.lstsq(A, B).solution  # (in_features, n_basis_function, out_features)
         else:
             solution = svd_lstsq(A, B)
