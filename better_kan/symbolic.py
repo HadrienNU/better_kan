@@ -191,22 +191,6 @@ def suggest_symbolic(x, y, a_range=(-10, 10), b_range=(-10, 10), lib=None, topk=
     Returns:
     --------
         None
-
-    Example
-    -------
-    >>> model = KAN(width=[2,5,1], grid=5, k=3, noise_scale=0.1, seed=0)
-    >>> f = lambda x: torch.exp(torch.sin(torch.pi*x[:,[0]]) + x[:,[1]]**2)
-    >>> dataset = create_dataset(f, n_var=2)
-    >>> model.train(dataset, opt='LBFGS', steps=50, lamb=0.01);
-    >>> model = model.prune()
-    >>> model(dataset['train_input'])
-    >>> model.suggest_symbolic(0,0,0)
-    function , r2
-    sin , 0.9994412064552307
-    gaussian , 0.9196369051933289
-    tanh , 0.8608126044273376
-    sigmoid , 0.8578218817710876
-    arctan , 0.842217743396759
     """
     r2s = []
 
@@ -418,9 +402,7 @@ class Symbolic_KANLayer(nn.Module):
         sbb.affine.data = self.affine.data[out_id][:, in_id]
         return sbb
 
-    def set_from_another_layer(
-        self, parent, fun_names, in_id=None, out_id=None, fit_params_bool=True, a_range=(-10, 10), b_range=(-10, 10), verbose=True, random=False, lib=None
-    ):
+    def set_from_another_layer(self, parent, fun_names, in_id=None, out_id=None, fit_params_bool=True, a_range=(-10, 10), b_range=(-10, 10), verbose=True, random=False, lib=None):
         """
         set a smaller KANLayer from a larger KANLayer (used for pruning)
 

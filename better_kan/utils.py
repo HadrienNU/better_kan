@@ -64,15 +64,6 @@ def train(
             results['test_loss'], 1D array of test losses (RMSE)
             results['reg'], 1D array of regularization
 
-    Example
-    -------
-    >>> # for interactive examples, please see demos
-    >>> from utils import create_dataset
-    >>> model = KAN(width=[2,5,1], grid=5, k=3, noise_scale=0.1, seed=0)
-    >>> f = lambda x: torch.exp(torch.sin(torch.pi*x[:,[0]]) + x[:,[1]]**2)
-    >>> dataset = create_dataset(f, n_var=2)
-    >>> model.train(dataset, opt='LBFGS', steps=50, lamb=0.01);
-    >>> model.plot()
     """
 
     pbar = tqdm(range(steps), desc="description")
@@ -187,16 +178,13 @@ def plot(kan, beta=3, norm_alpha=False, scale=1.0, tick=False, in_vars=None, out
     Example
     -------
     >>> # see more interactive examples in demos
-    >>> model = KAN(width=[2,3,1], grid=3, k=3, noise_scale=1.0)
-    >>> x = torch.normal(0,1,size=(100,2))
-    >>> model(x) # do a forward pass to obtain model.acts
-    >>> model.plot()
+    >>> plot(model)
     """
 
     import matplotlib.pyplot as plt
     import networkx as nx
 
-    depth = len(kan.width) - 1
+    depth = len(kan.layers)
 
     # Add nodes to graph, choose position at the same time
     pos = {}
@@ -329,9 +317,7 @@ def update_plot(kan, inserts_axes, act_lines, beta=3, norm_alpha=False, tick=Fal
     >>> model.plot()
     """
 
-    import matplotlib.pyplot as plt
-
-    depth = len(kan.width) - 1
+    depth = len(kan.layers)
 
     def score2alpha(score):
         return np.tanh(beta * score)
@@ -345,8 +331,6 @@ def update_plot(kan, inserts_axes, act_lines, beta=3, norm_alpha=False, tick=Fal
             x_in = torch.stack(ranges, dim=1)
             acts_vals = kan.layers[la].activations_eval(x_in).cpu().detach().numpy()
             x_ranges = x_in.cpu().detach().numpy()
-            # Take mask into account
-            mask_la = kan.layers[la].mask.cpu().detach().numpy()  # L'idée c'est d'avoir mask [i][j] = True/False pour savoir si on plot
             for i in range(kan.width[la]):
                 for j in range(kan.width[la + 1]):
                     inset_ax = inserts_axes[la][i][j]
