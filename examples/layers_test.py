@@ -10,8 +10,8 @@ x = torch.linspace(-5, 1, 150).unsqueeze(1)
 x_plot = x.squeeze().detach().numpy()
 
 
-sp_layer = SplinesKANLayer(1, 4, grid_size=6, scale_noise=1.0, scale_base=0.0, grid_alpha=0.5)
-sp_layer_bis = RBFKANLayer(1, 4, grid_size=50, scale_noise=1.0, scale_base=0.0, grid_alpha=0.5)
+sp_layer = SplinesKANLayer(1, 4, grid_size=6, scale_basis=1.0, scale_base=0.0, grid_alpha=0.5)
+sp_layer_bis = RBFKANLayer(1, 4, grid_size=50, scale_basis=1.0, scale_base=0.0, grid_alpha=0.5)
 sp_layer_bis.set_from_another_layer(sp_layer)
 
 

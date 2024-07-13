@@ -6,17 +6,8 @@ import matplotlib.pyplot as plt
 from better_kan import KAN, build_splines_layers, create_dataset, plot, train
 
 
-def mask_subset(mask, in_id=None):
-    """
-    Get new mask for layer subset
-    """
-    if in_id is not None:
-        mask = mask[:, in_id]
-    return mask[mask.sum(1).to(dtype=torch.bool), :]  # Remove entry that does not matter
-
-
 # Build model with some permutation invariant input
-model = KAN(build_splines_layers([7, 4, 1], grid_size=5, permutation_invariants=[0, 1, 1, 1, 1, 2, 2]))  #
+model = KAN(build_splines_layers([7, 4, 1], grid_size=5, permutation_invariants=[0, 1, 1, 1, 1, 2, 2], sbasis_trainable=True, sb_trainable=False))  #
 
 
 f = lambda x: 1 / (1 + torch.exp(-(torch.sin(torch.pi * x[:, [0]]) + x[:, [1]] ** 2 + x[:, [2]] ** 2 + x[:, [3]] ** 2 + x[:, [4]] ** 2 - (x[:, [5]] - x[:, [6]]).abs() ** 0.5)))
@@ -24,6 +15,10 @@ dataset = create_dataset(f, n_var=7)
 
 print(dataset["train_input"].shape, dataset["train_label"].shape)
 model(dataset["train_input"], update_grid=True)
+
+print(model)
+print(model.layers[0].parametrizations.weights.original0.shape)
+print(model.layers[1].parametrizations.weights.original0.shape)
 
 
 results = train(model, dataset, opt="Adam", steps=1500, update_grid=True, stop_grid_update_step=1450, grid_update_freq=50, lamb=0.01, lr=1e-2)

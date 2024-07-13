@@ -11,7 +11,7 @@ np_b = 21  # number of boundary points (along each dimension)
 ranges = [-1, 1]
 
 
-model = KAN(build_splines_layers([2, 2, 1], grid_size=5, grid_alpha=1.0, scale_noise=0.25))
+model = KAN(build_splines_layers([2, 2, 1], grid_size=5, grid_alpha=1.0, scale_basis=0.25))
 
 
 def batch_jacobian(func, x, create_graph=False):
@@ -24,7 +24,7 @@ def batch_jacobian(func, x, create_graph=False):
 
 # define solution
 sol_fun = lambda x: torch.sin(torch.pi * x[:, [0]]) * torch.sin(torch.pi * x[:, [1]])
-source_fun = lambda x: -2 * torch.pi ** 2 * torch.sin(torch.pi * x[:, [0]]) * torch.sin(torch.pi * x[:, [1]])
+source_fun = lambda x: -2 * torch.pi**2 * torch.sin(torch.pi * x[:, [0]]) * torch.sin(torch.pi * x[:, [1]])
 
 # interior
 sampling_mode = "random"  # 'radnom' or 'mesh'
@@ -37,7 +37,7 @@ if sampling_mode == "mesh":
     x_i = torch.stack([X.reshape(-1), Y.reshape(-1)]).permute(1, 0)
 else:
     # random
-    x_i = torch.rand((np_i ** 2, 2)) * 2 - 1
+    x_i = torch.rand((np_i**2, 2)) * 2 - 1
 
 # boundary, 4 sides
 helper = lambda X, Y: torch.stack([X.reshape(-1), Y.reshape(-1)]).permute(1, 0)

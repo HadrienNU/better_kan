@@ -106,8 +106,8 @@ def benchmark(dataset: Dict[str, torch.Tensor], device: str, bs: int, loss_fn: C
     return {
         "forward": np.mean(forward_times),
         "backward": np.mean(backward_times),
-        "forward-memory": np.mean(forward_mems) / (1024 ** 3),
-        "backward-memory": np.mean(backward_mems) / (1024 ** 3),
+        "forward-memory": np.mean(forward_mems) / (1024**3),
+        "backward-memory": np.mean(backward_mems) / (1024**3),
     }
 
 
@@ -209,7 +209,7 @@ def main():
             res["splines-better_kan-gpu"] = benchmark(dataset, "cuda", args.batch_size, loss_fn, model, args.reps)
             res["splines-better_kan-gpu"]["params"], res["splines-better_kan-gpu"]["train_params"] = count_params(model)
 
-        model = BetterKAN(build_chebyshev_layers([args.inp_size, args.hid_size, 1], chebyshev_order=9, fast_version=args.fast_better_kan))
+        model = BetterKAN(build_chebyshev_layers([args.inp_size, args.hid_size, 1], poly_order=9, fast_version=args.fast_better_kan))
         gc.collect()
         torch.cuda.empty_cache()
         model.to("cpu")

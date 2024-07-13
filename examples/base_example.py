@@ -3,17 +3,17 @@ import torch.nn as nn
 import numpy as np
 import matplotlib.pyplot as plt
 
-from better_kan import KAN, build_splines_layers, create_dataset, plot, train
+from better_kan import KAN, build_splines_layers, build_rbf_layers, create_dataset, plot, train
 
 
-model = KAN(build_splines_layers([2, 5, 1], grid_size=5, fast_version=False))
+model = KAN(build_rbf_layers([2, 5, 1], grid_size=5, fast_version=False))
 
 
 f = lambda x: torch.exp(torch.sin(torch.pi * x[:, [0]]) + x[:, [1]] ** 2)
 dataset = create_dataset(f, n_var=2)
 print(dataset["train_input"].shape, dataset["train_label"].shape)
 
-
+print(model.layers[0].weights)
 model(dataset["train_input"], update_grid=True)
 plot(model, title="KAN_initialisation", tick=False)
 

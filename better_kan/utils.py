@@ -195,7 +195,6 @@ def plot(kan, beta=3, norm_alpha=False, scale=1.0, tick=False, in_vars=None, out
             pos[(n, m)] = [(1 / (2 * l) + m / l) * (1 - 0.1 * (n % 2)), n]
 
     # Add network edges
-    # TODO Check value of mask to not plotting some edges
     for la in range(depth):
         for i in range(kan.width[la]):
             for j in range(kan.width[la + 1]):
