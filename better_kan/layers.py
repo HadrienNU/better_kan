@@ -331,13 +331,78 @@ class BasisKANLayer(torch.nn.Module):
             self.forward = self.forward_slow
 
 
+def gaussian_rbf(distances):
+    return torch.exp(-(distances.pow(2)))
+
+
+def quadratic_rbf(distances):
+    phi = distances.pow(2)
+    return phi
+
+
+def inverse_quadratic_rbf(distances):
+    phi = torch.ones_like(distances) / (torch.ones_like(distances) + distances.pow(2))
+    return phi
+
+
+def multiquadric_rbf(distances):
+    phi = (torch.ones_like(distances) + distances.pow(2)).pow(0.5)
+    return phi
+
+
+def inverse_multiquadric_rbf(distances):
+    phi = torch.ones_like(distances) / (torch.ones_like(distances) + distances.pow(2)).pow(0.5)
+    return phi
+
+
+def spline_rbf(distances):
+    phi = distances.pow(2) * torch.log(distances + torch.ones_like(distances))
+    return phi
+
+
+def poisson_one_rbf(distances):
+    phi = (distances - torch.ones_like(distances)) * torch.exp(-distances)
+    return phi
+
+
+def poisson_two_rbf(distances):
+    phi = ((distances - 2 * torch.ones_like(distances)) / 2 * torch.ones_like(distances)) * distances * torch.exp(-distances)
+    return phi
+
+
+def matern32_rbf(distances):
+    phi = (torch.ones_like(distances) + 3**0.5 * distances) * torch.exp(-(3**0.5) * distances)
+    return phi
+
+
+def matern52_rbf(distances):
+    phi = (torch.ones_like(distances) + 5**0.5 * distances + (5 / 3) * distances.pow(2)) * torch.exp(-(5**0.5) * distances)
+    return phi
+
+
+rbf_kernels = {
+    "gaussian": gaussian_rbf,
+    "quadratic": quadratic_rbf,
+    "inverse quadratic": inverse_quadratic_rbf,
+    "multiquadric": multiquadric_rbf,
+    "inverse multiquadric": inverse_multiquadric_rbf,
+    "spline": spline_rbf,
+    "poisson one": poisson_one_rbf,
+    "poisson two": poisson_two_rbf,
+    "matern32": matern32_rbf,
+    "matern52": matern52_rbf,
+}
+
+
 class RBFKANLayer(BasisKANLayer):
+
     def __init__(
         self,
         in_features,
         out_features,
         grid_size,
         base_activation=torch.nn.SiLU,
+        rbf_kernel="gaussian",
         mask=None,
         optimize_grid=False,
         grid_range=[-1, 1],  # For initialisation of grid
@@ -380,7 +445,8 @@ class RBFKANLayer(BasisKANLayer):
         self.get_sigmas_from_grid()
 
         # Base functions
-        self.rbf = self.gaussian_rbf  # Selection of the RBF
+        self.rbf_name = rbf_kernel
+        self.rbf = rbf_kernels[rbf_kernel]  # Selection of the RBF
 
         # Initialisation parameters
         self.grid_range = grid_range
@@ -417,45 +483,6 @@ class RBFKANLayer(BasisKANLayer):
         distances = x.unsqueeze(1) - self.grid.unsqueeze(0)
         return self.rbf(distances * self.sigmas.unsqueeze(0))
 
-    def gaussian_rbf(self, distances):
-        return torch.exp(-(distances.pow(2)))
-
-    def quadratic_rbf(self, distances):
-        phi = distances.pow(2)
-        return phi
-
-    def inverse_quadratic_rbf(self, distances):
-        phi = torch.ones_like(distances) / (torch.ones_like(distances) + distances.pow(2))
-        return phi
-
-    def multiquadric_rbf(self, distances):
-        phi = (torch.ones_like(distances) + distances.pow(2)).pow(0.5)
-        return phi
-
-    def inverse_multiquadric_rbf(self, distances):
-        phi = torch.ones_like(distances) / (torch.ones_like(distances) + distances.pow(2)).pow(0.5)
-        return phi
-
-    def spline_rbf(self, distances):
-        phi = distances.pow(2) * torch.log(distances + torch.ones_like(distances))
-        return phi
-
-    def poisson_one_rbf(self, distances):
-        phi = (distances - torch.ones_like(distances)) * torch.exp(-distances)
-        return phi
-
-    def poisson_two_rbf(self, distances):
-        phi = ((distances - 2 * torch.ones_like(distances)) / 2 * torch.ones_like(distances)) * distances * torch.exp(-distances)
-        return phi
-
-    def matern32_rbf(self, distances):
-        phi = (torch.ones_like(distances) + 3**0.5 * distances) * torch.exp(-(3**0.5) * distances)
-        return phi
-
-    def matern52_rbf(self, distances):
-        phi = (torch.ones_like(distances) + 5**0.5 * distances + (5 / 3) * distances.pow(2)) * torch.exp(-(5**0.5) * distances)
-        return phi
-
     def get_subset(self, in_id, out_id, new_grid_size=None):
         """
         get a smaller KANLayer from a larger KANLayer (used for pruning)
@@ -488,6 +515,7 @@ class RBFKANLayer(BasisKANLayer):
             scale_base=self.scale_base,
             scale_basis=self.scale_basis,
             base_activation=type(self.base_activation),
+            rbf_kernel=self.rbf_name,
             grid_alpha=self.grid_alpha,
             grid_range=self.grid_range,
             sb_trainable=self.base_scaler.requires_grad,

@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 from better_kan import KAN, build_splines_layers, build_rbf_layers, create_dataset, plot, train
 
 
-model = KAN(build_rbf_layers([2, 5, 1], grid_size=5, fast_version=False))
+model = KAN(build_rbf_layers([2, 5, 1], grid_size=5, fast_version=False, rbf_kernel="gaussian"))
 
 
 f = lambda x: torch.exp(torch.sin(torch.pi * x[:, [0]]) + x[:, [1]] ** 2)
