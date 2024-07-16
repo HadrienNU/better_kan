@@ -1,6 +1,7 @@
 import torch
 import copy
-from .layers import RBFKANLayer, SplinesKANLayer, ChebyshevKANLayer
+from .layers import RBFKANLayer, SplinesKANLayer
+from .polynomial_layers import ChebyshevKANLayer
 from .permutations import invariant_input
 
 # Two helpers functions to build stack  of KAN layers
@@ -12,22 +13,7 @@ def build_rbf_layers(
     add_batch_norm=False,
     **kwargs,
 ):
-    masks = [None] * (len(layers_hidden) - 1)
-    if permutation_invariants is not None:
-        masks[0] = invariant_input(permutation_invariants)
-    layers = torch.nn.ModuleList()
-    for in_features, out_features, mask in zip(layers_hidden, layers_hidden[1:], masks):
-        if add_batch_norm:
-            layers.append(torch.nn.BatchNorm1d(in_features))  # Normalize input
-        layers.append(
-            RBFKANLayer(
-                in_features,
-                out_features,
-                mask=mask,
-                **kwargs,
-            )
-        )
-    return layers
+    return build_layers([RBFKANLayer] * (len(layers_hidden) - 1), layers_hidden, permutation_invariants, add_batch_norm, **kwargs)
 
 
 def build_splines_layers(
@@ -36,25 +22,20 @@ def build_splines_layers(
     add_batch_norm=False,
     **kwargs,
 ):
-    masks = [None] * (len(layers_hidden) - 1)
-    if permutation_invariants is not None:
-        masks[0] = invariant_input(permutation_invariants)
-    layers = torch.nn.ModuleList()
-    for in_features, out_features, mask in zip(layers_hidden, layers_hidden[1:], masks):
-        if add_batch_norm:
-            layers.append(torch.nn.BatchNorm1d(in_features))  # Normalize input
-        layers.append(
-            SplinesKANLayer(
-                in_features,
-                out_features,
-                mask=mask,
-                **kwargs,
-            )
-        )
-    return layers
+    return build_layers([SplinesKANLayer] * (len(layers_hidden) - 1), layers_hidden, permutation_invariants, add_batch_norm, **kwargs)
 
 
 def build_chebyshev_layers(
+    layers_hidden,
+    permutation_invariants=None,
+    add_batch_norm=False,
+    **kwargs,
+):
+    return build_layers([ChebyshevKANLayer] * (len(layers_hidden) - 1), layers_hidden, permutation_invariants, add_batch_norm, **kwargs)
+
+
+def build_layers(
+    layers_types,
     layers_hidden,
     permutation_invariants=None,
     add_batch_norm=False,
@@ -64,11 +45,11 @@ def build_chebyshev_layers(
     if permutation_invariants is not None:
         masks[0] = invariant_input(permutation_invariants)
     layers = torch.nn.ModuleList()
-    for in_features, out_features, mask in zip(layers_hidden, layers_hidden[1:], masks):
+    for layer_cls, in_features, out_features, mask in zip(layers_types, layers_hidden, layers_hidden[1:], masks):
         if add_batch_norm:
             layers.append(torch.nn.BatchNorm1d(in_features))  # Normalize input
         layers.append(
-            ChebyshevKANLayer(
+            layer_cls(
                 in_features,
                 out_features,
                 mask=mask,

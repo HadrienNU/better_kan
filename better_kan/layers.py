@@ -374,11 +374,9 @@ class RBFKANLayer(BasisKANLayer):
             auto_grid_allow_outside_points,
             auto_grid_allow_empty_bins,
         )
-        # If optimizing over sigmas
-        # self.sigmas = nn.Parameter(torch.Tensor(grid_size,in_features), requires_grad=False)
-        # Else sigmas are simple derivative of the grid
+
         sigmas = torch.ones(grid_size, in_features)
-        self.register_buffer("sigmas", sigmas)
+        self.sigmas = nn.Parameter(sigmas, requires_grad=optimize_grid)
         self.get_sigmas_from_grid()
 
         # Base functions
@@ -389,8 +387,8 @@ class RBFKANLayer(BasisKANLayer):
 
         self.reset_parameters()
 
-    def get_sigmas_from_grid(self):
-        # C'est gradient mais sur le tensor sorted
+    @torch.no_grad()
+    def get_sigmas_from_grid(self):  # Get it from gradient of the sorted grid
         sorted_grid, inds_sort = torch.sort(self.grid, dim=0)
         batch_indices = torch.arange(self.grid.size(1), device=self.sigmas.device).unsqueeze(0).expand_as(inds_sort)
         self.sigmas[inds_sort, batch_indices] = 1.2 / torch.gradient(sorted_grid, dim=0)[0]
