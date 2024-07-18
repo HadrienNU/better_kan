@@ -271,15 +271,18 @@ class BasisKANLayer(torch.nn.Module):
         old_grid = parent.grid
 
         x_sorted = torch.sort(old_grid, dim=0)[0]
-        points = torch.linspace(0, old_grid.size(0) - 1.00001, self.grid.size(0), dtype=x_sorted.dtype, device=self.grid.device)
+        points = torch.linspace(0, old_grid.size(0) - 1.0, self.grid.size(0), dtype=x_sorted.dtype, device=self.grid.device)
         indices = torch.floor(points)
         floating_part = (points - indices).unsqueeze(1)
         indices = indices.to(torch.int64)
+        # The next two line deal with the special case of the end point
+        floating_part[indices == old_grid.size(0) - 1, :] += 1.0
+        indices[indices == old_grid.size(0) - 1] -= 1
         new_grid = x_sorted[indices] * (1.0 - floating_part) + x_sorted[indices + 1] * floating_part
 
         assign_parameters(self, "grid", new_grid[:, in_id])
 
-        # Et après ça il faut actualiser les poids
+        # After that the weight need to be actualized
         basis_values = parent.basis(new_grid)
         unreduced_basis_output = torch.sum(basis_values.unsqueeze(1) * parent.weights.unsqueeze(0), dim=2)  # (batch, out, in)
         unreduced_basis_output = unreduced_basis_output.transpose(1, 2)[:, in_id][:, :, out_id]
@@ -371,12 +374,12 @@ def poisson_two_rbf(distances):
 
 
 def matern32_rbf(distances):
-    phi = (torch.ones_like(distances) + 3**0.5 * distances) * torch.exp(-(3**0.5) * distances)
+    phi = (torch.ones_like(distances) + 3 ** 0.5 * distances) * torch.exp(-(3 ** 0.5) * distances)
     return phi
 
 
 def matern52_rbf(distances):
-    phi = (torch.ones_like(distances) + 5**0.5 * distances + (5 / 3) * distances.pow(2)) * torch.exp(-(5**0.5) * distances)
+    phi = (torch.ones_like(distances) + 5 ** 0.5 * distances + (5 / 3) * distances.pow(2)) * torch.exp(-(5 ** 0.5) * distances)
     return phi
 
 
@@ -395,7 +398,6 @@ rbf_kernels = {
 
 
 class RBFKANLayer(BasisKANLayer):
-
     def __init__(
         self,
         in_features,
