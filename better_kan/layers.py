@@ -49,7 +49,7 @@ class BasisKANLayer(torch.nn.Module):
         grid_alpha=0.02,
         optimize_grid=False,
         sb_trainable=True,
-        sbasis_trainable=True,
+        sbasis_trainable=False,
         bias_trainable=True,
         fast_version=False,
         auto_grid_update=False,  # Do we auto update the grid
@@ -152,15 +152,14 @@ class BasisKANLayer(torch.nn.Module):
         """
         torch._assert(x.dim() == 2 and x.size(1) == self.in_features, "Input dimension does not match layer size")
         torch._assert(y.size() == (x.size(0), self.in_features, self.out_features), " Output tensor sizes does not match expectation")
-
         A = self.basis(x).permute(2, 0, 1)  # (in_features, batch_size, n_basis_function)
         B = y.transpose(0, 1)  # (in_features, batch_size, out_features)
+
         if A.device == "cpu" or True:
             solution = torch.linalg.lstsq(A, B).solution  # (in_features, n_basis_function, out_features)
         else:
             solution = svd_lstsq(A, B)
         result = solution.permute(2, 1, 0)  # (out_features, n_basis_function, in_features)
-
         torch._assert(
             result.size()
             == (
@@ -410,7 +409,7 @@ class RBFKANLayer(BasisKANLayer):
         scale_basis=0.1,
         grid_alpha=0.02,  # Enforce less uniform and more adaptative grid in the update step
         sb_trainable=True,
-        sbasis_trainable=True,
+        sbasis_trainable=False,
         bias_trainable=True,
         fast_version=False,
         auto_grid_update=False,
@@ -541,7 +540,7 @@ class SplinesKANLayer(BasisKANLayer):
         grid_alpha=0.02,  # !!! Ensure grid_alpha is small enough when running on CUDA to avoid singular basis matrices
         grid_range=[-1, 1],
         sb_trainable=True,
-        sbasis_trainable=True,
+        sbasis_trainable=False,
         bias_trainable=True,
         fast_version=False,
         auto_grid_update=False,
