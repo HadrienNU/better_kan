@@ -21,9 +21,9 @@ $$ \sum_p  \sum_i  c_{q,i} \phi \left(  |x_p-c_i|\right)  .$$
 The last formula is the one implemented here.
 
 
-## Current benchmark (24/06/2024)
+## Current benchmark (19/07/2024)
 
-The splines implementation is not as fast as efficient-kan but still allow for significant speedup with respect to pykan.  Based on [this benchmarck](https://github.com/Jerry-Master/KAN-benchmarking)
+The implementation is not as fast as efficient-kan when using slow version but still allow for significant speedup with respect to pykan.  Based on [this benchmarck](https://github.com/Jerry-Master/KAN-benchmarking)
 
 ``
 python3 benchmark.py --batch-size 1000 --inp-size 100 --hid-size 1000 --reps 50
@@ -32,17 +32,16 @@ python3 benchmark.py --batch-size 1000 --inp-size 100 --hid-size 1000 --reps 50
 
 |                        |      forward  |     backward  |      forward  |     backward  |   num params  |  num trainable params
 |------------------------|---------------|---------------|---------------|---------------|---------------|----------------------
-|effkan-cpu              |     94.05 ms  |    177.52 ms  |       nan GB  |       nan GB  |      1010000  |               1010000
-|effkan-gpu              |     20.63 ms  |     36.95 ms  |      0.36 GB  |      0.37 GB  |      1010000  |               1010000
-|mlp-cpu                 |     10.29 ms  |     13.92 ms  |       nan GB  |       nan GB  |      1020001  |               1020001
-|mlp-gpu                 |      1.95 ms  |      3.17 ms  |      0.10 GB  |      0.14 GB  |      1020001  |               1020001
-|rbf-better_kan-cpu      |    290.91 ms  |    130.82 ms  |       nan GB  |       nan GB  |      1019801  |               1011001
-|rbf-better_kan-gpu      |     46.62 ms  |     29.09 ms  |      1.53 GB  |      0.79 GB  |      1019801  |               1011001
-|splines-better_kan-cpu  |    343.72 ms  |    282.10 ms  |       nan GB  |       nan GB  |      1011001  |               1011001
-|splines-better_kan-gpu  |     61.39 ms  |     63.29 ms  |      1.53 GB  |      0.79 GB  |      1011001  |               1011001
-|cheby-better_kan-cpu    |    245.98 ms  |    113.21 ms  |       nan GB  |       nan GB  |      1213001  |               1213001
-|cheby-better_kan-gpu    |     44.12 ms  |     23.91 ms  |      1.53 GB  |      0.79 GB  |      1213001  |               1213001
-
+|effkan-cpu              |     94.50 ms  |    175.48 ms  |       nan GB  |       nan GB  |      1010000  |               1010000
+|effkan-gpu              |     20.82 ms  |     37.40 ms  |      0.36 GB  |      0.37 GB  |      1010000  |               1010000
+|mlp-cpu                 |     12.22 ms  |     16.95 ms  |       nan GB  |       nan GB  |      1020001  |               1020001
+|mlp-gpu                 |      1.93 ms  |      3.18 ms  |      0.10 GB  |      0.14 GB  |      1020001  |               1020001
+|rbf-better_kan-cpu      |    279.77 ms  |    126.55 ms  |       nan GB  |       nan GB  |       928602  |                911002
+|rbf-better_kan-gpu      |     45.15 ms  |     28.37 ms  |      1.52 GB  |      0.78 GB  |       928602  |                911002
+|splines-better_kan-cpu  |    329.53 ms  |    266.63 ms  |       nan GB  |       nan GB  |       924202  |                911002
+|splines-better_kan-gpu  |     61.03 ms  |     63.09 ms  |      1.52 GB  |      0.78 GB  |       924202  |                911002
+|cheby-better_kan-cpu    |    231.81 ms  |    106.88 ms  |       nan GB  |       nan GB  |      1118502  |               1113002
+|cheby-better_kan-gpu    |     44.15 ms  |     23.81 ms  |      1.52 GB  |      0.78 GB  |      1118502  |               1113002
 
 Comparing to pykan (with smaller number of parameters)
 
@@ -65,13 +64,13 @@ python3 benchmark.py --batch-size 1000 --inp-size 100 --hid-size 1000 --reps 50 
 
 |                        |      forward  |     backward  |      forward  |     backward  |   num params  |  num trainable params
 |------------------------|---------------|---------------|---------------|---------------|---------------|----------------------
-|effkan-cpu              |     92.39 ms  |    172.42 ms  |       nan GB  |       nan GB  |      1010000  |               1010000
-|effkan-gpu              |     20.54 ms  |     36.70 ms  |      0.36 GB  |      0.37 GB  |      1010000  |               1010000
-|mlp-cpu                 |     10.52 ms  |     14.48 ms  |       nan GB  |       nan GB  |      1020001  |               1020001
-|mlp-gpu                 |      1.93 ms  |      3.14 ms  |      0.10 GB  |      0.14 GB  |      1020001  |               1020001
-|rbf-better_kan-cpu      |     30.39 ms  |     49.31 ms  |       nan GB  |       nan GB  |      1019801  |               1011001
-|rbf-better_kan-gpu      |      5.01 ms  |      6.97 ms  |      0.16 GB  |      0.19 GB  |      1019801  |               1011001
-|splines-better_kan-cpu  |     90.66 ms  |    169.52 ms  |       nan GB  |       nan GB  |      1011001  |               1011001
-|splines-better_kan-gpu  |     20.49 ms  |     34.98 ms  |      0.37 GB  |      0.38 GB  |      1011001  |               1011001
-|cheby-better_kan-cpu    |     27.88 ms  |     50.15 ms  |       nan GB  |       nan GB  |      1213001  |               1213001
-|cheby-better_kan-gpu    |      5.27 ms  |     11.40 ms  |      0.16 GB  |      0.31 GB  |      1213001  |               1213001
+|effkan-cpu              |     90.73 ms  |    171.64 ms  |       nan GB  |       nan GB  |      1010000  |               1010000
+|effkan-gpu              |     20.48 ms  |     36.68 ms  |      0.36 GB  |      0.37 GB  |      1010000  |               1010000
+|mlp-cpu                 |     10.27 ms  |     14.00 ms  |       nan GB  |       nan GB  |      1020001  |               1020001
+|mlp-gpu                 |      1.94 ms  |      3.16 ms  |      0.10 GB  |      0.14 GB  |      1020001  |               1020001
+|rbf-better_kan-cpu      |     27.54 ms  |     28.01 ms  |       nan GB  |       nan GB  |       928602  |                911002
+|rbf-better_kan-gpu      |      4.79 ms  |      6.58 ms  |      0.15 GB  |      0.18 GB  |       928602  |                911002
+|splines-better_kan-cpu  |     90.05 ms  |    165.65 ms  |       nan GB  |       nan GB  |       924202  |                911002
+|splines-better_kan-gpu  |     20.12 ms  |     34.32 ms  |      0.36 GB  |      0.37 GB  |       924202  |                911002
+|cheby-better_kan-cpu    |     30.28 ms  |     57.30 ms  |       nan GB  |       nan GB  |      1118502  |               1113002
+|cheby-better_kan-gpu    |      5.34 ms  |     11.27 ms  |      0.15 GB  |      0.30 GB  |      1118502  |               1113002
