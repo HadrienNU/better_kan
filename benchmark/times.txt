@@ -1,4 +1,4 @@
 |           |      forward  |     backward  |      forward  |     backward  |   num params  |  num trainable params
 |-----------|---------------|---------------|---------------|---------------|---------------|----------------------
-|pykan-cpu  |    989.97 ms  |   2054.30 ms  |       nan GB  |       nan GB  |       164404  |                141400
-|pykan-gpu  |   1667.06 ms  |   3496.19 ms  |      0.29 GB  |      0.21 GB  |       164404  |                141400
+|pykan-cpu  |    377.03 ms  |    450.12 ms  |       nan GB  |       nan GB  |      1633204  |               1414000
+|pykan-gpu  |     79.88 ms  |     94.09 ms  |      1.90 GB  |      1.53 GB  |      1633204  |               1414000

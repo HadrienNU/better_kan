@@ -157,12 +157,16 @@ def main():
     res = {}
     if args.method == "pykan":
         if not args.just_cuda:
-            model = pyKAN(width=[args.inp_size, args.hid_size, 1], grid=5, k=3, seed=0, save_act=(not args.fast))
+            model = pyKAN(width=[args.inp_size, args.hid_size, 1], grid=5, k=3, seed=0)
             model.to("cpu")
+            if args.fast:
+                model.speed()
             res["pykan-cpu"] = benchmark(dataset, "cpu", args.batch_size, loss_fn, model, args.reps)
             res["pykan-cpu"]["params"], res["pykan-cpu"]["train_params"] = count_params(model)
         if not cpu_only:
-            model = pyKAN(width=[args.inp_size, args.hid_size, 1], grid=5, k=3, seed=0, device="cuda", save_act=(not args.fast))  # For gpu pass device here
+            model = pyKAN(width=[args.inp_size, args.hid_size, 1], grid=5, k=3, seed=0, device="cuda")  # For gpu pass device here
+            if args.fast:
+                model.speed()
             res["pykan-gpu"] = benchmark(dataset, "cuda", args.batch_size, loss_fn, model, args.reps)
             res["pykan-gpu"]["params"], res["pykan-gpu"]["train_params"] = count_params(model)
     if args.method == "efficientkan" or args.method == "all":
