@@ -43,23 +43,12 @@ python3 benchmark.py --batch-size 1000 --inp-size 100 --hid-size 1000 --reps 50
 |cheby-better_kan-cpu    |    231.81 ms  |    106.88 ms  |       nan GB  |       nan GB  |      1118502  |               1113002
 |cheby-better_kan-gpu    |     44.15 ms  |     23.81 ms  |      1.52 GB  |      0.78 GB  |      1118502  |               1113002
 
-Comparing to pykan (with smaller number of parameters)
+
+
+However, when swicthing to fast version, speed becomes comparable to faster KAN implementation. But this fast version does not allow to use the original regularization neither the plotting and pruning utilities. Comparaison with pykan use model.speed()
 
 ``
-python3 benchmark.py --batch-size 1000 --inp-size 100 --hid-size 100 --reps 10 --method pykan
-``
-
-
-|           |      forward  |     backward  |      forward  |     backward  |   num params  |  num trainable params
-|-----------|---------------|---------------|---------------|---------------|---------------|----------------------
-|pykan-cpu  |   2092.33 ms  |   2032.41 ms  |       nan GB  |       nan GB  |       222301  |                141501
-|pykan-gpu  |   1742.72 ms  |   3726.45 ms  |      1.51 GB  |      0.66 GB  |       222301  |                141501
-
-
-However, when swicthing to fast version, speed becomes comparable to faster KAN implementation. But this fast version does not allow to use the original regularization neither the plotting and pruning utilities.
-
-``
-python3 benchmark.py --batch-size 1000 --inp-size 100 --hid-size 1000 --reps 50 --fast_better_kan
+python3 benchmark.py --batch-size 1000 --inp-size 100 --hid-size 1000 --reps 50 --fast
 ``
 
 |                        |      forward  |     backward  |      forward  |     backward  |   num params  |  num trainable params
@@ -74,3 +63,33 @@ python3 benchmark.py --batch-size 1000 --inp-size 100 --hid-size 1000 --reps 50 
 |splines-better_kan-gpu  |     20.12 ms  |     34.32 ms  |      0.36 GB  |      0.37 GB  |       924202  |                911002
 |cheby-better_kan-cpu    |     30.28 ms  |     57.30 ms  |       nan GB  |       nan GB  |      1118502  |               1113002
 |cheby-better_kan-gpu    |      5.34 ms  |     11.27 ms  |      0.15 GB  |      0.30 GB  |      1118502  |               1113002
+|pykan-cpu               |    377.03 ms  |    450.12 ms  |       nan GB  |       nan GB  |      1633204  |               1414000
+|pykan-gpu               |     79.88 ms  |     94.09 ms  |      1.90 GB  |      1.53 GB  |      1633204  |               1414000
+
+
+
+
+
+Comparing to pykan v1 (with smaller number of parameters)
+
+``
+python3 benchmark.py --batch-size 1000 --inp-size 100 --hid-size 100 --reps 10 --method pykan
+``
+
+
+|           |      forward  |     backward  |      forward  |     backward  |   num params  |  num trainable params
+|-----------|---------------|---------------|---------------|---------------|---------------|----------------------
+|pykan-cpu  |   2092.33 ms  |   2032.41 ms  |       nan GB  |       nan GB  |       222301  |                141501
+|pykan-gpu  |   1742.72 ms  |   3726.45 ms  |      1.51 GB  |      0.66 GB  |       222301  |                141501
+
+
+Comparing to pykan v2 (with smaller number of parameters)
+
+``
+python3 benchmark.py --batch-size 1000 --inp-size 100 --hid-size 100 --reps 10 --method pykan
+``
+
+|           |      forward  |     backward  |      forward  |     backward  |   num params  |  num trainable params
+|-----------|---------------|---------------|---------------|---------------|---------------|----------------------
+|pykan-cpu  |   1032.11 ms  |   2014.33 ms  |       nan GB  |       nan GB  |       164404  |                141400
+|pykan-gpu  |   1682.30 ms  |   3523.50 ms  |      0.32 GB  |      0.32 GB  |       164404  |                141400

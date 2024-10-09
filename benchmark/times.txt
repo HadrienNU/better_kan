@@ -1,12 +1,4 @@
-|                        |      forward  |     backward  |      forward  |     backward  |   num params  |  num trainable params
-|------------------------|---------------|---------------|---------------|---------------|---------------|----------------------
-|effkan-cpu              |     90.73 ms  |    171.64 ms  |       nan GB  |       nan GB  |      1010000  |               1010000
-|effkan-gpu              |     20.48 ms  |     36.68 ms  |      0.36 GB  |      0.37 GB  |      1010000  |               1010000
-|mlp-cpu                 |     10.27 ms  |     14.00 ms  |       nan GB  |       nan GB  |      1020001  |               1020001
-|mlp-gpu                 |      1.94 ms  |      3.16 ms  |      0.10 GB  |      0.14 GB  |      1020001  |               1020001
-|rbf-better_kan-cpu      |     27.54 ms  |     28.01 ms  |       nan GB  |       nan GB  |       928602  |                911002
-|rbf-better_kan-gpu      |      4.79 ms  |      6.58 ms  |      0.15 GB  |      0.18 GB  |       928602  |                911002
-|splines-better_kan-cpu  |     90.05 ms  |    165.65 ms  |       nan GB  |       nan GB  |       924202  |                911002
-|splines-better_kan-gpu  |     20.12 ms  |     34.32 ms  |      0.36 GB  |      0.37 GB  |       924202  |                911002
-|cheby-better_kan-cpu    |     30.28 ms  |     57.30 ms  |       nan GB  |       nan GB  |      1118502  |               1113002
-|cheby-better_kan-gpu    |      5.34 ms  |     11.27 ms  |      0.15 GB  |      0.30 GB  |      1118502  |               1113002
+|           |      forward  |     backward  |      forward  |     backward  |   num params  |  num trainable params
+|-----------|---------------|---------------|---------------|---------------|---------------|----------------------
+|pykan-cpu  |    377.03 ms  |    450.12 ms  |       nan GB  |       nan GB  |      1633204  |               1414000
+|pykan-gpu  |     79.88 ms  |     94.09 ms  |      1.90 GB  |      1.53 GB  |      1633204  |               1414000
