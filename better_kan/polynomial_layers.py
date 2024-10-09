@@ -24,6 +24,8 @@ class ChebyshevKANLayer(BasisKANLayer):
         fast_version=False,
         auto_grid_update=False,
         auto_grid_allow_outside_points=0.5,
+        pooling_op="sum",
+        pooling_args=None,
     ):
 
         h = (grid_range[1] - grid_range[0]) / grid_size
@@ -47,6 +49,8 @@ class ChebyshevKANLayer(BasisKANLayer):
             auto_grid_update,
             auto_grid_allow_outside_points,
             grid_size,  # This cancel the trigger on auto_grid_allow_empty_bins
+            pooling_op,
+            pooling_args,
         )
         self.poly_order = poly_order
 
@@ -138,6 +142,8 @@ class HermiteKANLayer(BasisKANLayer):
         fast_version=False,
         auto_grid_update=False,
         auto_grid_allow_outside_points=0.5,
+        pooling_op="sum",
+        pooling_args=None,
     ):
 
         h = (grid_range[1] - grid_range[0]) / grid_size
@@ -160,7 +166,9 @@ class HermiteKANLayer(BasisKANLayer):
             fast_version,
             auto_grid_update,
             auto_grid_allow_outside_points,
-            grid_size,  # This cancel the trigger on auto_grid_allow_empty_bins
+            grid_size,  # This cancel the trigger on auto_grid_allow_empty_bins,
+            pooling_op,
+            pooling_args,
         )
         self.poly_order = poly_order
 

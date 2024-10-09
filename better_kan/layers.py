@@ -55,6 +55,8 @@ class BasisKANLayer(torch.nn.Module):
         auto_grid_update=False,  # Do we auto update the grid
         auto_grid_allow_outside_points=0.1,
         auto_grid_allow_empty_bins=1,
+        pooling_op="sum",
+        pooling_args=None,
     ):
         super(BasisKANLayer, self).__init__()
         self.in_features = in_features
@@ -77,6 +79,19 @@ class BasisKANLayer(torch.nn.Module):
         self.weights = torch.nn.Parameter(torch.Tensor(out_features, n_basis_function, self.in_features))
         if sbasis_trainable:
             torch.nn.utils.parametrizations.weight_norm(self, name="weights", dim=0)
+
+        if pooling_op.lower() in ["sum", "prod", "logsumexp", "min", "max"]:
+            self.pooling_op = pooling_op.lower()
+        elif pooling_op.lower() in ["power", "pow"]:
+            self.pooling_op = "power"
+            assert pooling_args > 0 or pooling_args < 0  # Should raise error if not numeric
+            self.pooling_power = pooling_args
+        elif pooling_op.lower() == "fsum":
+            self.pooling_op = "fsum"
+            assert callable(pooling_args["f"]) and callable(pooling_args["invf"])  # The two argument exits and are callabel
+            self.pooling_args = pooling_args
+        else:
+            raise ValueError("Unknown pooling operation")
 
         self.set_speed_mode(fast_version)
 
@@ -188,7 +203,7 @@ class BasisKANLayer(torch.nn.Module):
         output = output.view(*original_shape[:-1], self.out_features)
         return output
 
-    def forward_slow(self, x: torch.Tensor):
+    def forward_slow(self, x: torch.Tensor):  # TODO: ajouter forwad power, prodet fmean
         if self.auto_grid_update:
             if self.trigger_grid_update(x):
                 self.update_grid(x)
@@ -198,8 +213,21 @@ class BasisKANLayer(torch.nn.Module):
         self.min_vals = torch.min(x, dim=0).values
         self.max_vals = torch.max(x, dim=0).values
         self.l1_norm = torch.mean(torch.abs(out_acts), dim=0) / (self.max_vals - self.min_vals)  # out_dim x in_dim
-        output = self.bias.unsqueeze(0) + torch.sum(out_acts, dim=2)
-        return output.view(*original_shape[:-1], self.out_features)
+        if self.pooling_op == "sum":
+            output = torch.sum(out_acts, dim=2)
+        elif self.pooling_op == "prod":
+            output = torch.prod(out_acts, dim=2)
+        elif self.pooling_op == "power":
+            output = torch.pow(torch.sum(torch.pow(out_acts, self.pooling_power), dim=2), 1 / self.pooling_power)
+        elif self.pooling_op == "logsumexp":
+            output = torch.logsumexp(out_acts, dim=2)
+        elif self.pooling_op == "min":
+            output = torch.min(out_acts, dim=2)
+        elif self.pooling_op == "max":
+            output = torch.max(out_acts, dim=2)
+        elif self.pooling_op == "fsum":
+            output = self.pooling_args["invf"](torch.sum(self.pooling_args["f"](out_acts), dim=2))
+        return (output + self.bias.unsqueeze(0)).view(*original_shape[:-1], self.out_features)
 
     def activations_eval(self, x: torch.Tensor):
         """
@@ -329,6 +357,8 @@ class BasisKANLayer(torch.nn.Module):
             self.forward = self.forward_fast
             if hasattr(self, "l1_norm"):
                 del self.l1_norm
+            if self.pooling_op != "sum":
+                print(f"Fast mode is incompatible with pooling operation {self.pooling_op}")
         else:
             self.forward = self.forward_slow
 
@@ -373,12 +403,12 @@ def poisson_two_rbf(distances):
 
 
 def matern32_rbf(distances):
-    phi = (torch.ones_like(distances) + 3 ** 0.5 * distances) * torch.exp(-(3 ** 0.5) * distances)
+    phi = (torch.ones_like(distances) + 3**0.5 * distances) * torch.exp(-(3**0.5) * distances)
     return phi
 
 
 def matern52_rbf(distances):
-    phi = (torch.ones_like(distances) + 5 ** 0.5 * distances + (5 / 3) * distances.pow(2)) * torch.exp(-(5 ** 0.5) * distances)
+    phi = (torch.ones_like(distances) + 5**0.5 * distances + (5 / 3) * distances.pow(2)) * torch.exp(-(5**0.5) * distances)
     return phi
 
 
@@ -417,6 +447,8 @@ class RBFKANLayer(BasisKANLayer):
         auto_grid_update=False,
         auto_grid_allow_outside_points=0.8,
         auto_grid_allow_empty_bins=5,
+        pooling_op="sum",
+        pooling_args=None,
     ):
         grid = torch.linspace(grid_range[0], grid_range[1], grid_size).expand(in_features, -1).transpose(0, 1).contiguous()
 
@@ -439,6 +471,8 @@ class RBFKANLayer(BasisKANLayer):
             auto_grid_update,
             auto_grid_allow_outside_points,
             auto_grid_allow_empty_bins,
+            pooling_op,
+            pooling_args,
         )
 
         sigmas = torch.ones(grid_size, in_features)
@@ -548,6 +582,8 @@ class SplinesKANLayer(BasisKANLayer):
         auto_grid_update=False,
         auto_grid_allow_outside_points=0.01,
         auto_grid_allow_empty_bins=1,
+        pooling_op="sum",
+        pooling_args=None,
     ):
 
         h = (grid_range[1] - grid_range[0]) / grid_size
@@ -573,6 +609,8 @@ class SplinesKANLayer(BasisKANLayer):
             auto_grid_update,
             auto_grid_allow_outside_points,
             2 * spline_order - 1 + auto_grid_allow_empty_bins,
+            pooling_op,
+            pooling_args,
         )
 
         self.reset_parameters()
