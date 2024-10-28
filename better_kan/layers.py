@@ -403,12 +403,12 @@ def poisson_two_rbf(distances):
 
 
 def matern32_rbf(distances):
-    phi = (torch.ones_like(distances) + 3**0.5 * distances) * torch.exp(-(3**0.5) * distances)
+    phi = (torch.ones_like(distances) + 3 ** 0.5 * distances) * torch.exp(-(3 ** 0.5) * distances)
     return phi
 
 
 def matern52_rbf(distances):
-    phi = (torch.ones_like(distances) + 5**0.5 * distances + (5 / 3) * distances.pow(2)) * torch.exp(-(5**0.5) * distances)
+    phi = (torch.ones_like(distances) + 5 ** 0.5 * distances + (5 / 3) * distances.pow(2)) * torch.exp(-(5 ** 0.5) * distances)
     return phi
 
 
@@ -633,12 +633,7 @@ class SplinesKANLayer(BasisKANLayer):
         for k in range(1, self.spline_order + 1):
             bases = ((x - grid[: -(k + 1), :]) / (grid[k:-1, :] - grid[: -(k + 1), :]) * bases[:, :-1, :]) + ((grid[k + 1 :, :] - x) / (grid[k + 1 :, :] - grid[1:(-k), :]) * bases[:, 1:, :])
         torch._assert(
-            bases.size()
-            == (
-                x.size(0),
-                self.n_basis_function,
-                self.in_features,
-            ),
+            bases.size() == (x.size(0), self.n_basis_function, self.in_features),
             "Basis size not matching expectation",
         )
         return bases  # .contiguous()
@@ -695,6 +690,77 @@ class SplinesKANLayer(BasisKANLayer):
         """
 
         newlayer = SplinesKANLayer(
+            len(in_id),
+            len(out_id),
+            grid_size=self.grid_size if new_grid_size is None else new_grid_size,
+            mask=mask_subset(self, in_id),
+            spline_order=self.spline_order,
+            scale_base=self.scale_base,
+            scale_basis=self.scale_basis,
+            base_activation=type(self.base_activation),
+            grid_alpha=self.grid_alpha,
+            grid_range=[-1, 1],  # We don't care since the grid is going to be redefined
+            sb_trainable=self.base_scaler.requires_grad,
+            sbasis_trainable=self.sbasis_trainable,
+            bias_trainable=self.bias.requires_grad,
+        )
+        newlayer.set_from_another_layer(self, in_id, out_id)
+        return newlayer
+
+
+class ReLUKANLayer(SplinesKANLayer):
+    def basis(self, x: torch.Tensor):
+        """
+        Compute the B-spline bases for the given input tensor.
+
+        Args:
+            x (torch.Tensor): Input tensor of shape (batch_size, in_features).
+
+        Returns:
+            torch.Tensor: B-spline bases tensor of shape (batch_size, grid_size + spline_order, in_features).
+        """
+        torch._assert(x.dim() == 2 and x.size(1) == self.in_features, "Input dimension does not match layer size")
+
+        grid: torch.Tensor = self.grid  # (grid_size + 2 * spline_order + 1, in_features)
+        x = x.unsqueeze(1)
+        print((grid[self.spline_order : -1, :] - grid[: -(self.spline_order + 1), :]))
+        print((grid[self.spline_order + 1 :, :] - grid[1 : (-self.spline_order), :]))
+        x1 = 2 * torch.relu(x - grid[: -(self.spline_order + 1), :]) / (grid[self.spline_order + 1 :, :] - grid[: -(self.spline_order + 1), :])
+        x2 = 2 * torch.relu(grid[(self.spline_order + 1) :, :] - x) / (grid[self.spline_order + 1 :, :] - grid[: -(self.spline_order + 1), :])
+
+        bases = x1 * x2
+        bases = bases * bases
+
+        torch._assert(
+            bases.size() == (x.size(0), self.n_basis_function, self.in_features),
+            "Basis size not matching expectation",
+        )
+        return bases  # .contiguous()
+
+    def get_subset(self, in_id, out_id, new_grid_size=None):
+        """
+        get a smaller KANLayer from a larger KANLayer (used for pruning)
+
+        Args:
+        -----
+            in_id : list
+                id of selected input neurons
+            out_id : list
+                id of selected output neurons
+
+        Returns:
+        --------
+            newlayer : KANLayer
+
+        Example
+        -------
+        >>> kanlayer_large = KANLayer(in_dim=10, out_dim=10, num=5, k=3)
+        >>> kanlayer_small = kanlayer_large.get_subset([0,9],[1,2,3])
+        >>> kanlayer_small.in_dim, kanlayer_small.out_dim
+        (2, 3)
+        """
+
+        newlayer = ReLUKANLayer(
             len(in_id),
             len(out_id),
             grid_size=self.grid_size if new_grid_size is None else new_grid_size,
