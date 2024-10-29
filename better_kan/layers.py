@@ -723,8 +723,6 @@ class ReLUKANLayer(SplinesKANLayer):
 
         grid: torch.Tensor = self.grid  # (grid_size + 2 * spline_order + 1, in_features)
         x = x.unsqueeze(1)
-        print((grid[self.spline_order : -1, :] - grid[: -(self.spline_order + 1), :]))
-        print((grid[self.spline_order + 1 :, :] - grid[1 : (-self.spline_order), :]))
         x1 = 2 * torch.relu(x - grid[: -(self.spline_order + 1), :]) / (grid[self.spline_order + 1 :, :] - grid[: -(self.spline_order + 1), :])
         x2 = 2 * torch.relu(grid[(self.spline_order + 1) :, :] - x) / (grid[self.spline_order + 1 :, :] - grid[: -(self.spline_order + 1), :])
 
