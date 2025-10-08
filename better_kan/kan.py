@@ -9,41 +9,41 @@ from .permutations import invariant_input
 
 def build_rbf_layers(
     layers_hidden,
-    permutation_invariants=None,
+    permutation_equivariance=None,
     add_batch_norm=False,
     **kwargs,
 ):
-    return build_layers([RBFKANLayer] * (len(layers_hidden) - 1), layers_hidden, permutation_invariants, add_batch_norm, **kwargs)
+    return build_layers([RBFKANLayer] * (len(layers_hidden) - 1), layers_hidden, permutation_equivariance, add_batch_norm, **kwargs)
 
 
 def build_splines_layers(
     layers_hidden,
-    permutation_invariants=None,
+    permutation_equivariance=None,
     add_batch_norm=False,
     **kwargs,
 ):
-    return build_layers([SplinesKANLayer] * (len(layers_hidden) - 1), layers_hidden, permutation_invariants, add_batch_norm, **kwargs)
+    return build_layers([SplinesKANLayer] * (len(layers_hidden) - 1), layers_hidden, permutation_equivariance, add_batch_norm, **kwargs)
 
 
 def build_chebyshev_layers(
     layers_hidden,
-    permutation_invariants=None,
+    permutation_equivariance=None,
     add_batch_norm=False,
     **kwargs,
 ):
-    return build_layers([ChebyshevKANLayer] * (len(layers_hidden) - 1), layers_hidden, permutation_invariants, add_batch_norm, **kwargs)
+    return build_layers([ChebyshevKANLayer] * (len(layers_hidden) - 1), layers_hidden, permutation_equivariance, add_batch_norm, **kwargs)
 
 
 def build_layers(
     layers_types,
     layers_hidden,
-    permutation_invariants=None,
+    permutation_equivariance=None,
     add_batch_norm=False,
     **kwargs,
 ):
     masks = [None] * (len(layers_hidden) - 1)
-    if permutation_invariants is not None:
-        masks[0] = invariant_input(permutation_invariants)
+    if permutation_equivariance is not None:
+        masks[0] = invariant_input(permutation_equivariance)
     layers = torch.nn.ModuleList()
     for layer_cls, in_features, out_features, mask in zip(layers_types, layers_hidden, layers_hidden[1:], masks):
         if add_batch_norm:

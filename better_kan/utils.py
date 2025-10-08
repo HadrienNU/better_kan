@@ -2,6 +2,103 @@ import torch
 import numpy as np
 from tqdm import tqdm
 
+def interpolate_state_tensor(old_tensor, new_shape):
+    """
+    Linearly interpolates an optimizer state tensor (like 'exp_avg' or 'exp_avg_sq')
+    to match a new parameter shape after grid refinement.
+
+    The `spline_weight` in pykan has shape (out_dim, in_dim, grid_size, k+1).
+    We interpolate along the `grid_size` dimension (dim=2).
+    """
+    old_size = old_tensor.shape[2]
+    new_size = new_shape[2]
+
+    if old_size == new_size:
+        return old_tensor
+
+    # F.interpolate requires input of shape (N, C, D_in), so we reshape.
+    # We treat (out_dim * in_dim) as the batch dim (N) and (k+1) as the channel dim (C).
+    # The dimension to interpolate is the grid_size (D_in).
+    
+    # Original shape: (out, in, grid_old, k+1)
+    # Permute to put grid dimension last: (out, in, k+1, grid_old)
+    temp_tensor = old_tensor.permute(0, 1, 3, 2)
+    
+    # Reshape for interpolation: (out * in * (k+1), 1, grid_old)
+    # This treats each spline's coefficient history as an independent sequence.
+    reshaped_tensor = temp_tensor.reshape(-1, 1, old_size)
+    
+    # Perform linear interpolation
+    interpolated_reshaped = F.interpolate(
+        reshaped_tensor, 
+        size=new_size, 
+        mode='linear', 
+        align_corners=True
+    )
+    
+    # Reshape back to original permuted format: (out, in, k+1, grid_new)
+    interpolated_temp = interpolated_reshaped.view(
+        old_tensor.shape[0], old_tensor.shape[1], old_tensor.shape[3], new_size
+    )
+
+    # Permute back to the final shape: (out, in, grid_new, k+1)
+    interpolated_final = interpolated_temp.permute(0, 1, 3, 2)
+    
+    return interpolated_final
+
+def transition_optimizer_state(old_params_dict, new_params_dict, old_optimizer):
+    """
+    Implements Algorithm 1 from the paper. It transitions the optimizer state
+    from an old model configuration to a new one after grid adaptation.
+    
+    Args:
+        old_params_dict (dict): A dictionary of {name: param} from the model before the update.
+        new_params_dict (dict): A dictionary of {name: param} from the model after the update.
+        old_optimizer (torch.optim.Optimizer): The optimizer instance before the update.
+
+    Returns:
+        dict: The new state_dict for the optimizer.
+    """
+    old_state_dict = old_optimizer.state_dict()
+    new_state_dict = {'state': {}, 'param_groups': old_state_dict['param_groups']}
+    
+    # Create a map from old parameter names to their IDs, which are keys in the state_dict
+    old_name_to_id = {name: id(p) for name, p in old_params_dict.items()}
+
+    for name, new_param in new_params_dict.items():
+        if name not in old_name_to_id:
+            continue # Parameter is new, no state to transfer
+
+        old_param = old_params_dict[name]
+        param_id_old = old_name_to_id[name]
+
+        if param_id_old not in old_state_dict['state']:
+            continue # Parameter was not in optimizer's state (e.g., non-trainable)
+
+        # The core of Algorithm 1
+        if old_param.shape == new_param.shape:
+            # If shapes are the same, just copy the state
+            new_state_dict['state'][id(new_param)] = copy.deepcopy(old_state_dict['state'][param_id_old])
+        else:
+            # If shapes differ (i.e., spline_weight was updated), interpolate the state
+            print(f"   Interpolating optimizer state for '{name}' from {old_param.shape} to {new_param.shape}")
+            old_param_state = old_state_dict['state'][param_id_old]
+            new_param_state = {}
+            for key, value in old_param_state.items():
+                if torch.is_tensor(value) and value.shape == old_param.shape:
+                    # This is 'exp_avg' or 'exp_avg_sq' for Adam
+                    new_param_state[key] = interpolate_state_tensor(value, new_param.shape)
+                else:
+                    # This is 'step' or other non-tensor state
+                    new_param_state[key] = value
+            new_state_dict['state'][id(new_param)] = new_param_state
+
+    # Update param_groups to use new parameter IDs
+    for i, param_group in enumerate(new_state_dict['param_groups']):
+        param_group['params'] = [id(p) for p in new_params_dict.values()]
+    
+    return new_state_dict
+
 
 def train(
     kan,

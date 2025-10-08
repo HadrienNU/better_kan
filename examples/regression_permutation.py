@@ -7,7 +7,7 @@ from better_kan import KAN, build_splines_layers, create_dataset, plot, train
 
 
 # Build model with some permutation invariant input
-model = KAN(build_splines_layers([7, 4, 1], grid_size=5, permutation_invariants=[0, 1, 1, 1, 1, 2, 2], sbasis_trainable=True, sb_trainable=False))  #
+model = KAN(build_splines_layers([7, 4, 1], grid_size=5, permutation_equivariants=[0, 1, 1, 1, 1, 2, 2], sbasis_trainable=True, sb_trainable=False))  #
 
 
 f = lambda x: 1 / (1 + torch.exp(-(torch.sin(torch.pi * x[:, [0]]) + x[:, [1]] ** 2 + x[:, [2]] ** 2 + x[:, [3]] ** 2 + x[:, [4]] ** 2 - (x[:, [5]] - x[:, [6]]).abs() ** 0.5)))
