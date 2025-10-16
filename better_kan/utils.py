@@ -5,6 +5,7 @@ import torch.nn.functional as F
 import copy
 import numpy as np
 
+
 def interpolate_moments_pytorch(mu_old, nu_old, new_shape):
     """
     Performs a linear interpolation to assign values to the first and second-order moments of gradients of the c_i basis functions coefficients after grid extension.
@@ -47,8 +48,8 @@ def interpolate_moments_pytorch(mu_old, nu_old, new_shape):
     nu_2d = nu_perm.reshape(batch_size, old_len).unsqueeze(1)
 
     # Perform 1D linear interpolation
-    mu_new_3d = F.interpolate(mu_2d, size=new_len, mode='linear', align_corners=True)
-    nu_new_3d = F.interpolate(nu_2d, size=new_len, mode='linear', align_corners=True)
+    mu_new_3d = F.interpolate(mu_2d, size=new_len, mode="linear", align_corners=True)
+    nu_new_3d = F.interpolate(nu_2d, size=new_len, mode="linear", align_corners=True)
     # Reshape back and invert permutation
     mu_new = mu_new_3d.squeeze(1).reshape(*mu_perm.shape[:-1], new_len).permute(*np.argsort(permute_order))
     nu_new = nu_new_3d.squeeze(1).reshape(*nu_perm.shape[:-1], new_len).permute(*np.argsort(permute_order))
@@ -56,11 +57,12 @@ def interpolate_moments_pytorch(mu_old, nu_old, new_shape):
     print("Interpolated shape:", mu_new.shape)
     return mu_new, nu_new
 
+
 def transition_optimizer_state(old_params_dict, new_params_dict, old_optimizer):
     """
     Implements Algorithm 1 from the paper. It transitions the optimizer state
     from an old model configuration to a new one after grid adaptation.
-    
+
     Args:
         old_params_dict (dict): A dictionary of {name: param} from the model before the update.
         new_params_dict (dict): A dictionary of {name: param} from the model after the update.
@@ -70,19 +72,19 @@ def transition_optimizer_state(old_params_dict, new_params_dict, old_optimizer):
         dict: The new state_dict for the optimizer.
     """
     old_state_dict = old_optimizer.state_dict()
-    
+
     # Create a mapping from old parameter IDs (used in state_dict) to their names
     old_idx_to_name = {i: name for i, name in enumerate(old_params_dict.keys())}
     new_name_to_idx = {name: i for i, name in enumerate(new_params_dict.keys())}
 
     # Copy the hyperparameter groups from the old state_dict
-    new_param_groups = copy.deepcopy(old_state_dict['param_groups'])
+    new_param_groups = copy.deepcopy(old_state_dict["param_groups"])
 
     # Rebuild the 'state' dictionary for the new model's parameters
     new_state = {}
-    
+
     # Iterate through the state of the old parameters, where `param_idx` is the key.
-    for param_idx, state in old_state_dict['state'].items():
+    for param_idx, state in old_state_dict["state"].items():
         # Find the name of the old parameter using its index.
         param_name = old_idx_to_name.get(param_idx)
         if not param_name:
@@ -94,32 +96,33 @@ def transition_optimizer_state(old_params_dict, new_params_dict, old_optimizer):
 
         if new_p is None or new_param_idx is None:
             continue
-            
+
         # Make a deep copy of the state to avoid modifying the original.
         new_param_state = copy.deepcopy(state)
-        if 'exp_avg' in new_param_state and 'exp_avg_sq' in new_param_state and "weights" in param_name: # Only interpolate for weights
-            mu_old = state['exp_avg']
-            nu_old = state['exp_avg_sq']
-            print(param_idx,param_name,new_p.shape)
+        if "exp_avg" in new_param_state and "exp_avg_sq" in new_param_state and "weights" in param_name:  # Only interpolate for weights
+            mu_old = state["exp_avg"]
+            nu_old = state["exp_avg_sq"]
+            print(param_idx, param_name, new_p.shape)
             print(old_params_dict.get(param_name).shape)
             # Interpolate to the shape of the new parameter
 
             mu_new, nu_new = interpolate_moments_pytorch(mu_old, nu_old, new_p.shape)
 
             # Update the state with the interpolated moments
-            new_param_state['exp_avg'] = mu_new
-            new_param_state['exp_avg_sq'] = nu_new
-        
+            new_param_state["exp_avg"] = mu_new
+            new_param_state["exp_avg_sq"] = nu_new
+
         # The key in the new state dictionary must be the ID of the new parameter
         new_state[new_param_idx] = new_param_state
 
     # Construct the final state_dict
     new_state_dict = {
-        'state': new_state,
-        'param_groups': new_param_groups,
+        "state": new_state,
+        "param_groups": new_param_groups,
     }
 
     return new_state_dict
+
 
 def train(
     kan,

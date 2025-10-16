@@ -5,52 +5,18 @@ from .layers import BasisKANLayer
 from .permutations import mask_subset
 
 
-class ChebyshevKANLayer(BasisKANLayer):
+class ChebyshevPolynomial(nn.Module):
     def __init__(
         self,
         in_features,
         out_features,
         grid_size=5,
-        mask=None,
         poly_order=3,
-        scale_base=1.0,
-        scale_basis=0.1,
-        base_activation=torch.nn.SiLU,
-        grid_alpha=0.02,
         grid_range=[-1, 1],
-        sb_trainable=True,
-        sbasis_trainable=False,
-        bias_trainable=True,
-        fast_version=False,
-        auto_grid_update=False,
-        auto_grid_allow_outside_points=0.5,
-        pooling_op="sum",
-        pooling_args=None,
     ):
 
         h = (grid_range[1] - grid_range[0]) / grid_size
-        grid = (torch.arange(grid_size) * h + grid_range[0]).expand(in_features, -1).transpose(0, 1).contiguous()
-        super(ChebyshevKANLayer, self).__init__(
-            in_features,
-            out_features,
-            grid_size,
-            grid,
-            base_activation,
-            mask,
-            scale_base,
-            scale_basis,
-            grid_alpha,
-            False,
-            sb_trainable,
-            sbasis_trainable,
-            bias_trainable,
-            fast_version,
-            auto_grid_update,
-            auto_grid_allow_outside_points,
-            grid_size,  # This cancel the trigger on auto_grid_allow_empty_bins
-            pooling_op,
-            pooling_args,
-        )
+        super(ChebyshevPolynomial, self).__init__()
         self.poly_order = poly_order
 
         self.grid_range = grid_range
@@ -60,7 +26,7 @@ class ChebyshevKANLayer(BasisKANLayer):
 
     @property
     def n_basis_function(self):
-        return self.poly_order+1
+        return self.poly_order + 1
 
     def basis(self, x: torch.Tensor):
         """
@@ -126,7 +92,7 @@ class ChebyshevKANLayer(BasisKANLayer):
         return newlayer
 
 
-class HermiteKANLayer(BasisKANLayer):
+class HermitePolynomial(nn.Module):
     def __init__(
         self,
         in_features,
@@ -181,7 +147,7 @@ class HermiteKANLayer(BasisKANLayer):
 
     @property
     def n_basis_function(self):
-        return self.poly_order+1
+        return self.poly_order + 1
 
     def basis(self, x: torch.Tensor):
         """

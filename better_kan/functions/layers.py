@@ -7,13 +7,12 @@ import torch.nn.utils.parametrize as parametrize
 from .permutations import mask_subset, InputMask, GridMask
 from .rbf_kernels import rbf_kernels
 
-
 @torch.no_grad()
 def assign_parameters(module, param, new_value):
     """
     Workaround to the difference of assignation for paramerized and non parametrized Parameters
     """
-    if parametrize.is_parametrized(module, param):  # TODO, to check
+    if parametrize.is_parametrized(module, param): # TODO, to check
         old_param = getattr(module, param)
         if old_param.shape == new_value.shape:
             setattr(module, param, new_value)
@@ -25,7 +24,7 @@ def assign_parameters(module, param, new_value):
             setattr(module, param, nn.Parameter(new_value))
             # and but them back
             for P in reversed(plist):
-                parametrize.register_parametrization(module, param, P, unsafe=True)
+                parametrize.register_parametrization(module, param,P, unsafe=True)
 
     else:
         old_param = getattr(module, param)
@@ -56,7 +55,7 @@ def weight_transfer(b, new_b, tol=1e-12):
     Compute both the new weights and the transfer matrice when changing the underlying basis
     """
 
-    BB = torch.einsum("", new_b, new_b)
+    BB= torch.einsum("", new_b,new_b)
 
     U, S, Vh = torch.linalg.svd(BB, full_matrices=False)
     Spinv = torch.zeros_like(S)
@@ -71,13 +70,16 @@ def weight_transfer(b, new_b, tol=1e-12):
     return transfer_mat
 
 
-class KANLayer(nn.Module):
+
+
+
+class KANLayer(torch.nn.Module):
     def __init__(
         self,
         in_features,
         out_features,
         functions,
-        bias=None,
+        bias_trainable=True,
         fast_version=False,
         pooling_op="sum",
         pooling_args=None,
@@ -85,12 +87,9 @@ class KANLayer(nn.Module):
         super(KANLayer, self).__init__()
         self.in_features = in_features
         self.out_features = out_features
-        if bias is not None:
-            self.bias = torch.nn.Parameter(bias * torch.ones(out_features))
-        else:
-            self.bias = torch.zeros(out_features)
+        self.bias = torch.nn.Parameter(torch.zeros(out_features), requires_grad=bias_trainable)
 
-        self.functions = functions
+        self.functions= functions
 
         if pooling_op.lower() in ["sum", "prod", "logsumexp", "min", "max"]:
             self.pooling_op = pooling_op.lower()
@@ -107,8 +106,34 @@ class KANLayer(nn.Module):
 
         self.set_speed_mode(fast_version)
 
+        # For automatic grid update
+
+    def reset_parameters(self):
+
+        self.bias.data = torch.zeros(self.out_features)
+
+        # Initialize random splines weight
+        with torch.no_grad():
+            noise = (torch.rand(self.grid.shape[0], self.in_features, self.out_features) - 1 / 2) * self.scale_basis / self.n_basis_function
+            assign_parameters(self, "weights", self.curve2coeff(self.grid, noise))
+
+
     def forward_fast(self, x: torch.Tensor):
-        return torch.stack((fct(x) for fct in self.fonctions), dim=0).sum(dim=0)
+        if self.auto_grid_update:
+            if self.trigger_grid_update(x):
+                self.update_grid(x)
+        # Fast version that does not allow for regularisation
+        original_shape = x.shape
+        x = x.view(-1, self.in_features)
+        base_output = F.linear(self.base_activation(x), self.base_scaler,self.bias) # Apply the bias as well
+        basis_output = F.linear(
+            self.basis(x).reshape(x.size(0), -1),
+            self.weights.view(self.out_features, -1),
+        )
+        output = base_output + basis_output
+
+        output = output.view(*original_shape[:-1], self.out_features)
+        return output
 
     def forward_slow(self, x: torch.Tensor):  # TODO: ajouter forwad power, product, fmean
         if self.auto_grid_update:
@@ -135,6 +160,7 @@ class KANLayer(nn.Module):
         elif self.pooling_op == "fsum":
             output = self.pooling_args["invf"](torch.sum(self.pooling_args["f"](out_acts), dim=2))
         return (output + self.bias.unsqueeze(0)).view(*original_shape[:-1], self.out_features)
+
 
     def regularization_loss(self, regularize_activation=1.0, regularize_entropy=1.0):
         """
@@ -182,7 +208,7 @@ class KANLayer(nn.Module):
 
         return self
 
-    def set_speed_mode(self, fast=True):  # TODO: set reduction to True in functions
+    def set_speed_mode(self, fast=True): # TODO: set reduction to True in functions
         if fast:
             self.forward = self.forward_fast
             if hasattr(self, "l1_norm"):
@@ -191,6 +217,11 @@ class KANLayer(nn.Module):
                 print(f"Fast mode is incompatible with pooling operation {self.pooling_op}")
         else:
             self.forward = self.forward_slow
+
+
+
+
+
 
 
 class BasisKANLayer(torch.nn.Module):
@@ -354,7 +385,7 @@ class BasisKANLayer(torch.nn.Module):
         # Fast version that does not allow for regularisation
         original_shape = x.shape
         x = x.view(-1, self.in_features)
-        base_output = F.linear(self.base_activation(x), self.base_scaler, self.bias)  # Apply the bias as well
+        base_output = F.linear(self.base_activation(x), self.base_scaler,self.bias) # Apply the bias as well
         basis_output = F.linear(
             self.basis(x).reshape(x.size(0), -1),
             self.weights.view(self.out_features, -1),
@@ -414,7 +445,7 @@ class BasisKANLayer(torch.nn.Module):
         # sort each channel individually to collect data distribution
         x_sorted = torch.sort(x, dim=0)[0]
         if grid_size > 0:
-            self.grid_size = grid_size
+            self.grid_size=grid_size
         grid_adaptive = x_sorted[torch.linspace(0, batch - 1, self.grid_size, dtype=torch.int64, device=x.device)]
 
         uniform_step = (x_sorted[-1] - x_sorted[0] + 2 * margin) / self.grid_size
@@ -425,7 +456,10 @@ class BasisKANLayer(torch.nn.Module):
 
         new_basis_values = self.basis(x)
 
+        
+
         assign_parameters(self, "weights", self.curve2coeff(x, unreduced_basis_output))
+
 
     @torch.no_grad()
     def trigger_grid_update(self, x: torch.Tensor):
@@ -529,6 +563,9 @@ class BasisKANLayer(torch.nn.Module):
             self.forward = self.forward_slow
 
 
+
+
+
 class RBFKANLayer(BasisKANLayer):
     def __init__(
         self,
@@ -590,6 +627,7 @@ class RBFKANLayer(BasisKANLayer):
 
         self.reset_parameters()
 
+
     @torch.no_grad()
     def get_sigmas_from_grid(self):  # Get it from gradient of the sorted grid
         sorted_grid, inds_sort = torch.sort(self.grid, dim=0)
@@ -598,7 +636,7 @@ class RBFKANLayer(BasisKANLayer):
         return self.sigmas
 
     @torch.no_grad()
-    def update_grid(self, x: torch.Tensor, grid_size=-1, margin=0.01):
+    def update_grid(self, x: torch.Tensor, grid_size=-1,margin=0.01):
         torch._assert(x.dim() == 2 and x.size(1) == self.in_features, "Input dimension does not match layer size")
         batch = x.size(0)
         basis_values = self.basis(x)
@@ -607,10 +645,10 @@ class RBFKANLayer(BasisKANLayer):
         # sort each channel individually to collect data distribution
         x_sorted = torch.sort(x, dim=0)[0]
 
-        if grid_size > 0:  # Change grid size
-            self.grid_size = grid_size
+        if grid_size > 0: # Change grid size
+            self.grid_size=grid_size
             self.n_basis_function = grid_size
-
+        
         grid_adaptive = x_sorted[torch.linspace(0, batch - 1, self.grid_size, dtype=torch.int64, device=x.device)]
 
         uniform_step = (x_sorted[-1] - x_sorted[0] + 2 * margin) / self.grid_size
@@ -724,7 +762,7 @@ class SplinesKANLayer(BasisKANLayer):
 
     @property
     def n_basis_function(self):
-        return self.grid_size + self.spline_order
+        return self.grid_size+self.spline_order
 
     def basis(self, x: torch.Tensor):
         """
@@ -745,12 +783,12 @@ class SplinesKANLayer(BasisKANLayer):
             bases = ((x - grid[: -(k + 1), :]) / (grid[k:-1, :] - grid[: -(k + 1), :]) * bases[:, :-1, :]) + ((grid[k + 1 :, :] - x) / (grid[k + 1 :, :] - grid[1:(-k), :]) * bases[:, 1:, :])
         torch._assert(
             bases.size() == (x.size(0), self.n_basis_function, self.in_features),
-            f"Basis size not matching expectation {bases.size()}, {(x.size(0), self.n_basis_function, self.in_features)}",
+            f"Basis size not matching expectation {bases.size()}, {(x.size(0), self.n_basis_function, self.in_features)}" ,
         )
         return bases  # .contiguous()
 
     @torch.no_grad()
-    def update_grid(self, x: torch.Tensor, grid_size=-1, margin=0.01):
+    def update_grid(self, x: torch.Tensor, grid_size=-1,margin=0.01):
         torch._assert(x.dim() == 2 and x.size(1) == self.in_features, "Input dimension does not match layer size")
         batch = x.size(0)
 
@@ -761,7 +799,7 @@ class SplinesKANLayer(BasisKANLayer):
         x_sorted = torch.sort(x, dim=0)[0]
 
         if grid_size > 0:
-            self.grid_size = grid_size
+            self.grid_size=grid_size
 
         grid_adaptive = x_sorted[torch.linspace(0, batch - 1, self.grid_size + 1, dtype=torch.int64, device=x.device)]
 
@@ -849,6 +887,7 @@ class ReLUKANLayer(SplinesKANLayer):
             "Basis size not matching expectation",
         )
         return bases  # .contiguous()
+    
 
     def get_subset(self, in_id, out_id, new_grid_size=None):
         """
