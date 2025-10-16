@@ -34,7 +34,6 @@ class ChebyshevKANLayer(BasisKANLayer):
             in_features,
             out_features,
             grid_size,
-            poly_order + 1,
             grid,
             base_activation,
             mask,
@@ -58,6 +57,10 @@ class ChebyshevKANLayer(BasisKANLayer):
         self.register_buffer("arange", torch.arange(0, self.poly_order + 1, 1))
 
         self.reset_parameters()
+
+    @property
+    def n_basis_function(self):
+        return self.poly_order+1
 
     def basis(self, x: torch.Tensor):
         """
@@ -152,7 +155,6 @@ class HermiteKANLayer(BasisKANLayer):
             in_features,
             out_features,
             grid_size,
-            poly_order + 1,
             grid,
             base_activation,
             mask,
@@ -176,6 +178,10 @@ class HermiteKANLayer(BasisKANLayer):
         self.register_buffer("arange", torch.arange(0, self.poly_order + 1, 1))
 
         self.reset_parameters()
+
+    @property
+    def n_basis_function(self):
+        return self.poly_order+1
 
     def basis(self, x: torch.Tensor):
         """

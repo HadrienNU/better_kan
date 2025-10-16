@@ -14,14 +14,14 @@ f = lambda x: 1 / (1 + torch.exp(-(torch.sin(torch.pi * x[:, [0]]) + x[:, [1]] *
 dataset = create_dataset(f, n_var=7)
 
 print(dataset["train_input"].shape, dataset["train_label"].shape)
-model(dataset["train_input"], update_grid=True)
+model.update_grid(dataset["train_input"])
 
 print(model)
 print(model.layers[0].parametrizations.weights.original0.shape)
 print(model.layers[1].parametrizations.weights.original0.shape)
 
 
-results = train(model, dataset, opt="Adam", steps=1500, update_grid=True, stop_grid_update_step=1450, grid_update_freq=50, lamb=0.01, lr=1e-2)
+results = train(model, dataset, opt="Adam", steps=5000, update_grid=True, stop_grid_update_step=5000, grid_update_freq=50, lamb=0.01, lr=1e-2)
 
 plt.figure()
 

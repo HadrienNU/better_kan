@@ -14,7 +14,7 @@ dataset = create_dataset(f, n_var=2)
 print(dataset["train_input"].shape, dataset["train_label"].shape)
 
 
-model(dataset["train_input"], update_grid=True)
+model.update_grid(dataset["train_input"])
 plot(model, title="KAN_initialisation", tick=False)
 
 

@@ -4,9 +4,9 @@ import time
 import numpy as np
 import torch
 from torch import nn
-from kan import create_dataset
-from kan import KAN as pyKAN
-from efficient_kan import KAN as effKAN
+from better_kan import create_dataset
+# from kan import KAN as pyKAN
+# from efficient_kan import KAN as effKAN
 from better_kan import build_rbf_layers, build_splines_layers, build_chebyshev_layers
 from better_kan import KAN as BetterKAN
 import gc
@@ -148,10 +148,10 @@ def main():
     parser = _create_parser()
     args = parser.parse_args()
 
-    cpu_only = False
+    cpu_only = True
 
     f = lambda x: torch.exp(torch.sin(torch.pi * x[:, [0]]) + x[:, [1]] ** 2)
-    dataset = create_dataset(f, n_var=args.inp_size, ranges=[-1, 1], train_num=1000, test_num=1000, normalize_input=False, normalize_label=False, device="cpu", seed=0)
+    dataset = create_dataset(f, n_var=args.inp_size, ranges=[-1, 1], train_num=1000, test_num=1000, normalize_input=False, normalize_label=False, seed=0)
     loss_fn = lambda x, y: torch.mean((x - y) ** 2)
 
     res = {}

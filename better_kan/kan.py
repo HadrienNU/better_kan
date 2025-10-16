@@ -68,11 +68,15 @@ class KAN(torch.nn.Module):
     def width(self):
         return [self.layers[0].in_features] + [la.out_features for la in self.layers]
 
-    def forward(self, x: torch.Tensor, update_grid=False):
+    def forward(self, x: torch.Tensor):
         for layer in self.layers:
-            if update_grid:
-                if hasattr(layer, "update_grid"):
-                    layer.update_grid(x)
+            x = layer(x)
+        return x
+    
+    def update_grid(self, x, grid_size=-1):
+        for layer in self.layers:
+            if hasattr(layer, "update_grid"):
+                layer.update_grid(x, grid_size=grid_size)
             x = layer(x)
         return x
 

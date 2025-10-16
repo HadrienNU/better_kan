@@ -14,11 +14,11 @@ dataset = create_dataset(f, n_var=2)
 print(dataset["train_input"].shape, dataset["train_label"].shape)
 
 print(model.layers[0].weights)
-model(dataset["train_input"], update_grid=True)
+model.update_grid(dataset["train_input"])
 plot(model, title="KAN_initialisation", tick=False)
 
 
-results = train(model, dataset, opt="LBFGS", steps=60, update_grid=True, lamb=0.05)
+results = train(model, dataset, opt="LBFGS", steps=60, lamb=0.05)
 
 plt.figure()
 

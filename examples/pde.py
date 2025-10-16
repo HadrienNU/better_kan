@@ -85,7 +85,9 @@ def train():
         optimizer.step(closure)
         sol = sol_fun(x_i)
         loss = alpha * pde_loss + bc_loss
-        l2 = torch.mean((model(x_i, update_grid=update_grid) - sol) ** 2)
+        if update_grid:
+            model.update_grid()
+        l2 = torch.mean((model(x_i) - sol) ** 2)
 
         if n % log == 0:
             pbar.set_description("pde loss: %.2e | bc loss: %.2e | l2: %.2e " % (pde_loss.cpu().detach().numpy(), bc_loss.cpu().detach().numpy(), l2.detach().numpy()))

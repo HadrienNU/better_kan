@@ -37,7 +37,9 @@ class KAN_Lightning(lightning.LightningModule):
         x, y = batch
         x = x.view(-1, self.kan.width[0])  # Assure input has the correct size
 
-        pred = self.kan.forward(x, update_grid=(batch_idx % self.grid_update_freq == 0 and batch_idx < self.stop_grid_update_step and self.update_grid))
+        if (batch_idx % self.grid_update_freq == 0 and batch_idx < self.stop_grid_update_step and self.update_grid):
+            self.kan.update_grid()
+        pred = self.kan.forward(x)
         train_loss = torch.mean((pred - y) ** 2)
         reg_ = self.kan.regularization_loss()
         loss = train_loss + self.lamb * reg_

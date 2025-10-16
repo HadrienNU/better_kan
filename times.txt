@@ -1,0 +1,5 @@
+|                        |      forward  |     backward  |      forward  |     backward  |   num params  |  num trainable params
+|------------------------|---------------|---------------|---------------|---------------|---------------|----------------------
+|rbf-better_kan-cpu      |      0.38 ms  |      0.37 ms  |       nan GB  |       nan GB  |         2233  |                  1401
+|splines-better_kan-cpu  |      0.77 ms  |      0.68 ms  |       nan GB  |       nan GB  |         2025  |                  1401
+|cheby-better_kan-cpu    |      0.53 ms  |      0.48 ms  |       nan GB  |       nan GB  |         1961  |                  1701

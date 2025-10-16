@@ -15,7 +15,7 @@ dataset = create_dataset(f, n_var=4)
 print(dataset["train_input"].shape, dataset["train_label"].shape)
 
 
-model(dataset["train_input"], update_grid=True)
+model.update_grid(dataset["train_input"])
 
 results = train(model, dataset, opt="LBFGS", steps=60, update_grid=True, lamb=0.05)
 
