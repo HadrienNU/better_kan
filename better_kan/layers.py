@@ -70,6 +70,160 @@ def weight_transfer(b, new_b, tol=1e-12):
     return transfer_mat
 
 
+
+
+
+class KANLayer(torch.nn.Module):
+    def __init__(
+        self,
+        in_features,
+        out_features,
+        functions,
+        bias_trainable=True,
+        fast_version=False,
+        pooling_op="sum",
+        pooling_args=None,
+    ):
+        super(KANLayer, self).__init__()
+        self.in_features = in_features
+        self.out_features = out_features
+        self.bias = torch.nn.Parameter(torch.zeros(out_features), requires_grad=bias_trainable)
+
+        self.functions= functions
+
+        if pooling_op.lower() in ["sum", "prod", "logsumexp", "min", "max"]:
+            self.pooling_op = pooling_op.lower()
+        elif pooling_op.lower() in ["power", "pow"]:
+            self.pooling_op = "power"
+            assert pooling_args > 0 or pooling_args < 0  # Should raise error if not numeric
+            self.pooling_power = pooling_args
+        elif pooling_op.lower() == "fsum":
+            self.pooling_op = "fsum"
+            assert callable(pooling_args["f"]) and callable(pooling_args["invf"])  # The two argument exits and are callabel
+            self.pooling_args = pooling_args
+        else:
+            raise ValueError("Unknown pooling operation")
+
+        self.set_speed_mode(fast_version)
+
+        # For automatic grid update
+
+    def reset_parameters(self):
+
+        self.bias.data = torch.zeros(self.out_features)
+
+        # Initialize random splines weight
+        with torch.no_grad():
+            noise = (torch.rand(self.grid.shape[0], self.in_features, self.out_features) - 1 / 2) * self.scale_basis / self.n_basis_function
+            assign_parameters(self, "weights", self.curve2coeff(self.grid, noise))
+
+
+    def forward_fast(self, x: torch.Tensor):
+        if self.auto_grid_update:
+            if self.trigger_grid_update(x):
+                self.update_grid(x)
+        # Fast version that does not allow for regularisation
+        original_shape = x.shape
+        x = x.view(-1, self.in_features)
+        base_output = F.linear(self.base_activation(x), self.base_scaler,self.bias) # Apply the bias as well
+        basis_output = F.linear(
+            self.basis(x).reshape(x.size(0), -1),
+            self.weights.view(self.out_features, -1),
+        )
+        output = base_output + basis_output
+
+        output = output.view(*original_shape[:-1], self.out_features)
+        return output
+
+    def forward_slow(self, x: torch.Tensor):  # TODO: ajouter forwad power, product, fmean
+        if self.auto_grid_update:
+            if self.trigger_grid_update(x):
+                self.update_grid(x)
+        original_shape = x.shape
+        out_acts = self.activations_eval(x)
+        # Somes statistics for regularisation and plot
+        self.min_vals = torch.min(x, dim=0).values
+        self.max_vals = torch.max(x, dim=0).values
+        self.l1_norm = torch.mean(torch.abs(out_acts), dim=0) / (self.max_vals - self.min_vals)  # out_dim x in_dim
+        if self.pooling_op == "sum":
+            output = torch.sum(out_acts, dim=2)
+        elif self.pooling_op == "prod":
+            output = torch.prod(out_acts, dim=2)
+        elif self.pooling_op == "power":
+            output = torch.pow(torch.sum(torch.pow(out_acts, self.pooling_power), dim=2), 1 / self.pooling_power)
+        elif self.pooling_op == "logsumexp":
+            output = torch.logsumexp(out_acts, dim=2)
+        elif self.pooling_op == "min":
+            output = torch.min(out_acts, dim=2)
+        elif self.pooling_op == "max":
+            output = torch.max(out_acts, dim=2)
+        elif self.pooling_op == "fsum":
+            output = self.pooling_args["invf"](torch.sum(self.pooling_args["f"](out_acts), dim=2))
+        return (output + self.bias.unsqueeze(0)).view(*original_shape[:-1], self.out_features)
+
+
+    def regularization_loss(self, regularize_activation=1.0, regularize_entropy=1.0):
+        """
+        Compute the regularization loss.
+        """
+        if hasattr(self, "l1_norm"):
+            regularization_loss_activation = self.l1_norm.sum()
+            p = self.l1_norm / regularization_loss_activation
+            regularization_loss_entropy = -torch.sum(p * torch.log(p + 1e-6))  # Regularization to avoid 0 value
+            return regularize_activation * regularization_loss_activation + regularize_entropy * regularization_loss_entropy
+        else:
+            return torch.tensor(0.0)
+
+    def set_from_another_layer(self, parent, in_id=None, out_id=None):
+        """
+        set a smaller KANLayer from a larger KANLayer (used for pruning)
+
+
+        Args:
+        -----
+            parent : kan_layer
+                An input KANLayer to be set as a subset of this one
+            in_id : list
+                id of selected input neurons
+            out_id : list
+                id of selected output neurons
+
+        Returns:
+        --------
+            newlayer : KANLayer
+
+        Example
+        -------
+        >>> kanlayer_large = KANLayer(in_dim=10, out_dim=10, num=5, k=3)
+        >>> kanlayer_small = kanlayer_small.set_from_another_layer(kanlayer_large,[0,9],[1,2,3])
+        >>> kanlayer_small.in_dim, kanlayer_small.out_dim
+        (2, 3)
+        """
+        if in_id is None:
+            in_id = torch.arange(self.in_features)
+        if out_id is None:
+            out_id = torch.arange(self.out_features)
+
+        self.bias.data.copy_(parent.bias[out_id])
+
+        return self
+
+    def set_speed_mode(self, fast=True): # TODO: set reduction to True in functions
+        if fast:
+            self.forward = self.forward_fast
+            if hasattr(self, "l1_norm"):
+                del self.l1_norm
+            if self.pooling_op != "sum":
+                print(f"Fast mode is incompatible with pooling operation {self.pooling_op}")
+        else:
+            self.forward = self.forward_slow
+
+
+
+
+
+
+
 class BasisKANLayer(torch.nn.Module):
     def __init__(
         self,
