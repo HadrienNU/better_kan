@@ -74,6 +74,10 @@ class TestParametrizations(unittest.TestCase):
         # The recovered weights should be identical to the original ones
         self.assertTrue(torch.allclose(stored_weight, recovered_unique_weights, atol=1e-6))
 
+        weight_full = weight_param.forward(weight_param.right_inverse(full_weight_matrix))
+
+        self.assertTrue(torch.allclose(weight_full, full_weight_matrix, atol=1e-6))
+
     def test_bias_right_inverse(self):
         """Test the right_inverse method for EquivariantVector."""
         bias_param = EquivariantVector(self.generators, self.out_channels)
@@ -89,6 +93,10 @@ class TestParametrizations(unittest.TestCase):
 
         # Check for correctness
         self.assertTrue(torch.allclose(stored_bias, recovered_unique_biases, atol=1e-6))
+
+        bias_full = bias_param.forward(bias_param.right_inverse(full_bias_vector))
+
+        self.assertTrue(torch.allclose(bias_full, full_bias_vector, atol=1e-6))
 
     def test_parametrization_on_linear(self):
         """Tests applying EquivariantWeight directly to a standard nn.Linear layer."""

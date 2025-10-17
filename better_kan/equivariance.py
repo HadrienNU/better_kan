@@ -6,11 +6,10 @@ import torch
 import torch.nn as nn
 import numpy as np
 from copy import deepcopy
-import torch.nn.utils.parametrize as parametrize
-
+from itertools import product
+from collections.abc import Sequence
 
 from sympy.combinatorics import Permutation, PermutationGroup
-from sympy.combinatorics.group_constructs import DirectProduct
 
 
 def equivariant_permutations_inputs(inputs):
@@ -43,6 +42,123 @@ def trivial_group(n):
     """
 
     return PermutationGroup(Permutation([], size=n))
+
+
+def draw_matrix_parametrizations(parametrizations, cmap="rainbow", markersize=20):
+    import numpy as np
+    import matplotlib
+    import matplotlib.pyplot as plt
+    import matplotlib.cm as cmx
+    import pylab as mpl
+
+    wvals = np.arange(parametrizations.num_weights)
+    w = parametrizations.forward(wvals)
+    if len(w.shape) == 1:
+        w = w.reshape(-1, 1)
+    mrklist = ["3", "d", ",", "2", "8", "s", "|", "^", "<", "4", "H", "+", "o", "v", "p", "D", ">", "1", ".", "_", "*", "h"]
+    cm = plt.get_cmap("Greys")
+    cNorm = matplotlib.colors.Normalize(vmin=0, vmax=len(wvals) - 1)
+    scalarMap = cmx.ScalarMappable(norm=cNorm, cmap=cm)
+
+    def plot_single_matrix(ax, matrix):
+        if markersize > 0:
+            for wval in wvals:
+                x, y = np.nonzero(w == wval)
+                x = w.shape[0] - x - 1
+                plt.scatter(x, y, s=markersize, marker=mrklist[wval % len(mrklist)], color=scalarMap.to_rgba(wval), alpha=1)
+        ax.imshow(matrix, cmap=cmap, alpha=0.8, vmin=0, vmax=len(wvals) - 1, origin="lower", aspect="equal")
+        ax.set_xticks(np.arange(matrix.shape[1] - 1) + 0.5, [])
+        ax.set_yticks(np.arange(matrix.shape[0] - 1) + 0.5, [])
+        ax.set_xlim(-0.5, matrix.shape[1] - 0.5)
+        ax.set_ylim(-0.5, matrix.shape[0] - 0.5)
+        ax.grid(which="major", color="grey", linestyle="-", alpha=0.5)
+        ax.xaxis.set_ticks_position("none")
+        ax.yaxis.set_ticks_position("none")
+
+    # If w is a high-dimensional tensor, treat it as a collection of matrices
+    if len(w.shape) > 2:
+        num_matrices = w.shape[0]
+        # Auto-calculate grid size for subplots
+        ncols = num_matrices
+        nrows = 1
+
+        fig, axes = plt.subplots(nrows, ncols, figsize=(ncols * 4, nrows * 4))
+        # Flatten axes array for easy iteration
+        axes = axes.flatten()
+
+        for i in range(num_matrices):
+            sub_matrix = w[i]
+            ax = axes[i]
+            plot_single_matrix(ax, sub_matrix)
+            ax.set_title(f"Submatrix {i}")
+
+        # Hide any unused subplots
+        for i in range(num_matrices, len(axes)):
+            axes[i].set_visible(False)
+
+        plt.tight_layout()
+
+    else:  # Original behavior for 2D or 1D arrays
+        fig, ax = plt.subplots(figsize=(8, 8))
+        plot_single_matrix(ax, w)
+
+
+def create_colored_tensor(shape: tuple[int, ...], actions: list[list[torch.Tensor] | None]) -> tuple[torch.Tensor, int]:
+    """
+    Determines the unique parameters of a tensor under group actions on its axes.
+
+    This function "colors" the tensor elements. Elements that are mapped to each
+    other by the group actions will receive the same color, meaning they must
+    share the same weight.
+
+    Args:
+        shape (tuple[int, ...]): The shape of the tensor.
+        actions (list[list[torch.Tensor] | None]): A list of actions, one for each
+            axis of the tensor. Each action is a list of permutation generators.
+            If an axis is not permuted, its entry should be None.
+
+    Returns:
+        tuple[torch.Tensor, int]:
+            - A LongTensor of the given `shape` where each element is an integer
+              "color" (index) of the unique parameter it corresponds to.
+            - The total number of unique colors (parameters).
+    """
+    if len(shape) != len(actions):
+        raise ValueError("The length of shape and actions must be the same.")
+
+    # Tensor to store the color of each element, initialized to -1 (uncolored)
+    colors_tensor = torch.full(shape, -1, dtype=torch.long)
+    color_idx = 0
+
+    # Iterate through every position in the tensor
+    for initial_pos in product(*(range(s) for s in shape)):
+        if colors_tensor[initial_pos] == -1:  # If not yet colored
+            # Start a Breadth-First Search (BFS) to find all connected elements
+            q = [initial_pos]
+            colors_tensor[initial_pos] = color_idx
+
+            head = 0
+            while head < len(q):
+                current_pos = q[head]
+                head += 1
+
+                # Apply each generator to find where the current position maps to
+                for k in range(num_generators):
+                    next_pos_list = list(current_pos)
+                    # Apply the k-th generator to each axis that has an action
+                    for dim, action in enumerate(actions):
+                        if action is not None:
+                            gen_k_for_dim = action[k]
+                            next_pos_list[dim] = gen_k_for_dim[current_pos[dim]].item()
+
+                    next_pos = tuple(next_pos_list)
+                    if colors_tensor[next_pos] == -1:
+                        colors_tensor[next_pos] = color_idx
+                        q.append(next_pos)
+
+            color_idx += 1  # Move to the next color for the next component
+
+    return colors_tensor, color_idx
 
 
 ### The following code is borrowed from AutoEquiv https://github.com/mshakerinava/AutoEquiv
@@ -99,21 +215,21 @@ class EquivariantVector(nn.Module):
         self.num_colors_v = len(set(self.colors_v.values()))
         self.num_weights = self.num_colors_v * out_channels
 
-        idx_vector = np.zeros((self.out_features * out_channels,), dtype=int)
+        idx_weight = np.zeros((self.out_features * out_channels,), dtype=int)
         for i in range(out_channels):
             row_base = i * self.out_features
             v_base = i * self.num_colors_v
             for k, v in self.colors_v.items():
-                idx_vector[row_base + k] = v_base + v
-        self.register_buffer("idx_vector", torch.tensor(idx_vector, dtype=torch.long))
+                idx_weight[row_base + k] = v_base + v
+        self.register_buffer("idx_weight", torch.tensor(idx_weight, dtype=torch.long))
 
     def forward(self, X):
-        return X[self.idx_vector]
+        return X[self.idx_weight]
 
     def right_inverse(self, x):
         # Calculate sums and counts for each unique bias
-        sums = torch.bincount(self.idx_vector, weights=x, minlength=self.num_weights)
-        counts = torch.bincount(self.idx_vector, minlength=self.num_weights)
+        sums = torch.bincount(self.idx_weight, weights=x, minlength=self.num_weights)
+        counts = torch.bincount(self.idx_weight, minlength=self.num_weights)
 
         # Avoid division by zero
         counts = counts.clamp(min=1)
@@ -124,9 +240,7 @@ class EquivariantVector(nn.Module):
 
 
 class EquivariantMatrix(nn.Module):
-    def __init__(
-        self, in_generators, out_generators=None, in_channels=1, out_channels=1
-    ):
+    def __init__(self, in_generators, out_generators=None, in_channels=1, out_channels=1):
         super().__init__()
         self.out_generators = out_generators
         self.in_generators = in_generators
@@ -140,7 +254,7 @@ class EquivariantMatrix(nn.Module):
         self.num_colors_mat = len(set(self.colors_mat.values()))
         self.num_weights = self.num_colors_mat * in_channels * out_channels
 
-        idx_matrix = np.zeros(
+        idx_weight = np.zeros(
             (self.out_features * out_channels, self.in_features * in_channels),
             dtype=int,
         )
@@ -150,32 +264,15 @@ class EquivariantMatrix(nn.Module):
                 col_base = j * self.in_features
                 v_base = (i * in_channels + j) * self.num_colors_mat
                 for k, v in self.colors_mat.items():
-                    idx_matrix[row_base + k[1], col_base + k[0]] = v_base + v
-        self.register_buffer("idx_matrix", torch.tensor(idx_matrix, dtype=torch.long))
-
-        # basis_cat = torch.stack(
-        #     [
-        #         torch.from_numpy((idx_matrix == i).flatten()).to(torch.float)
-        #         for i in range(self.num_weights + 1)
-        #     ],
-        #     dim=-2,
-        # )
-        # # Il faut la concatener de la bonne manière pour ensuite en faire l'inverse
-        # torch.linalg.pinv(basis_cat)
+                    idx_weight[row_base + k[1], col_base + k[0]] = v_base + v
+        self.register_buffer("idx_weight", torch.tensor(idx_weight, dtype=torch.long))
 
     def forward(self, X):
-        return X[self.idx_matrix]
-
-    # def right_inverse(self, A):
-    #     # We first vectorize A
-    #     A_vec = A.resize(
-    #         self.out_features * self.out_channels, self.in_features * self.in_channels
-    #     )
-    #     return torch.matmul(A_vec, self.inv_parametrization)
+        return X[self.idx_weight]
 
     def right_inverse(self, x):
         # Flatten the index and value tensors
-        flat_idx = self.idx_matrix.flatten()
+        flat_idx = self.idx_weight.flatten()
         flat_x = x.flatten()
 
         # Calculate sums and counts for each unique weight
@@ -191,8 +288,61 @@ class EquivariantMatrix(nn.Module):
         return unique_weights
 
 
+class EquivariantParametrization(nn.Module):
+    """
+    A generic parametrization for creating any equivariant tensor.
+
+    This module constrains a tensor to be equivariant under specified group
+    actions on its axes. It does this by identifying the minimal set of unique
+    parameters and mapping them to the full tensor.
+
+    Args:
+        shape (tuple[int, ...]): The shape of the tensor.
+        actions (list): A list of group actions (generators) for each axis.
+                        Use `None` for axes not affected by the group.
+    """
+
+    def __init__(self, shape: tuple[int, ...], actions: list):
+        super().__init__()
+
+        self.shape = shape
+
+        # Check that generators length match tensor shape
+        for i, s in enumerate(self.shape):
+            if actions[i] is not None:
+                assert len(actions[i][0]) == s
+
+        idx_tensor, num_colors = create_colored_tensor(shape, actions)
+        self.num_weights = num_colors
+        self.register_buffer("idx_tensor", idx_tensor)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        if x.numel() != self.num_weights:
+            raise ValueError(f"Expected {self.num_unique_params} unique parameters, but got {x.numel()}")
+        full_tensor = x[self.idx_tensor]
+        return full_tensor.view(self.shape)
+
+    def right_inverse(self, x: torch.Tensor) -> torch.Tensor:
+        # Flatten both index and value tensors for bincount
+        flat_idx = self.idx_tensor.flatten()
+        flat_x = x.flatten()
+
+        # Calculate sums and counts for each unique parameter
+        sums = torch.bincount(flat_idx, weights=flat_x, minlength=self.weight.numel())
+        counts = torch.bincount(flat_idx, minlength=self.weight.numel())
+
+        counts = counts.clamp(min=1)  # Avoid division by zero
+        return sums / counts.to(sums.dtype)
+
+
 if __name__ == "__main__":
+    import matplotlib.pyplot as plt
 
     generators = equivariant_permutations_inputs(["a", "a", "b", "b", "a"])
-    bias = EquivariantVector(generators)
-    print(bias.idx_vector)
+
+    parametrization_tensor = EquivariantVector(generators)
+    print(parametrization_tensor.idx_weight)
+    draw_matrix_parametrizations(parametrization_tensor)
+    plt.show()
+    parametrization_tensor = EquivariantParametrization((5, 1, 5), [generators, None, None])
+    print(parametrization_tensor.idx_tensor)
