@@ -1,28 +1,19 @@
 import torch
-import torch.nn as nn
-
-from .layers import BasisKANLayer
-from .permutations import mask_subset
+from . import BasisFunction
 
 
-class ChebyshevPolynomial(nn.Module):
+class ChebyshevPolynomial(BasisFunction):
     def __init__(
         self,
         in_features,
         out_features,
-        grid_size=5,
         poly_order=3,
-        grid_range=[-1, 1],
+        **kwargs,
     ):
 
-        h = (grid_range[1] - grid_range[0]) / grid_size
-        super(ChebyshevPolynomial, self).__init__()
         self.poly_order = poly_order
-
-        self.grid_range = grid_range
         self.register_buffer("arange", torch.arange(0, self.poly_order + 1, 1))
-
-        self.reset_parameters()
+        super(ChebyshevPolynomial, self).__init__(in_features, out_features, **kwargs)
 
     @property
     def n_basis_function(self):
@@ -38,10 +29,18 @@ class ChebyshevPolynomial(nn.Module):
         Returns:
             torch.Tensor: Chebyshev bases tensor of shape (batch_size, poly_order, in_features).
         """
-        torch._assert(x.dim() == 2 and x.size(1) == self.in_features, "Input dimension does not match layer size")
-        x = torch.tanh((x - (self.grid[0, :] + self.grid[-1, :])) / (self.grid[-1, :] - self.grid[0, :]))  # Rescale into grid
+        torch._assert(
+            x.dim() == 2 and x.size(1) == self.in_features,
+            "Input dimension does not match layer size",
+        )
+        x = torch.tanh(
+            (x - (self.grid[0, :] + self.grid[-1, :]))
+            / (self.grid[-1, :] - self.grid[0, :])
+        )  # Rescale into grid
         # View and repeat input degree + 1 times
-        x = x.view((-1, self.in_features, 1)).expand(-1, -1, self.poly_order + 1)  # shape = (batch_size, in_features, self.degree + 1)
+        x = x.view((-1, self.in_features, 1)).expand(
+            -1, -1, self.poly_order + 1
+        )  # shape = (batch_size, in_features, self.degree + 1)
         # Apply acos
         x = x.acos()
         # Multiply by arange [0 .. degree]
@@ -52,7 +51,7 @@ class ChebyshevPolynomial(nn.Module):
 
     def get_subset(self, in_id, out_id, new_grid_size=None):
         """
-        get a smaller KANLayer from a larger KANLayer (used for pruning)
+        get a smaller basis from a larger basis (used for pruning)
 
         Args:
         -----
@@ -60,39 +59,18 @@ class ChebyshevPolynomial(nn.Module):
                 id of selected input neurons
             out_id : list
                 id of selected output neurons
-
-        Returns:
-        --------
-            newlayer : KANLayer
-
-        Example
-        -------
-        >>> kanlayer_large = KANLayer(in_dim=10, out_dim=10, num=5, k=3)
-        >>> kanlayer_small = kanlayer_large.get_subset([0,9],[1,2,3])
-        >>> kanlayer_small.in_dim, kanlayer_small.out_dim
-        (2, 3)
         """
 
-        newlayer = ChebyshevKANLayer(
+        newbasis = ChebyshevPolynomial(
             len(in_id),
             len(out_id),
-            grid_size=self.grid_size if new_grid_size is None else new_grid_size,
-            mask=mask_subset(self, in_id),
             poly_order=self.poly_order,
-            scale_base=self.scale_base,
-            scale_basis=self.scale_basis,
-            base_activation=type(self.base_activation),
-            grid_alpha=self.grid_alpha,
-            grid_range=self.grid_range,
-            sb_trainable=self.base_scaler.requires_grad,
-            sbasis_trainable=self.sbasis_trainable,
-            bias_trainable=self.bias.requires_grad,
         )
-        newlayer.set_from_another_layer(self, in_id, out_id)
-        return newlayer
+        newbasis.set_from_another_basis(self, in_id, out_id)
+        return newbasis
 
 
-class HermitePolynomial(nn.Module):
+class HermitePolynomial(BasisFunction):
     def __init__(
         self,
         in_features,
@@ -116,7 +94,12 @@ class HermitePolynomial(nn.Module):
     ):
 
         h = (grid_range[1] - grid_range[0]) / grid_size
-        grid = (torch.arange(grid_size) * h + grid_range[0]).expand(in_features, -1).transpose(0, 1).contiguous()
+        grid = (
+            (torch.arange(grid_size) * h + grid_range[0])
+            .expand(in_features, -1)
+            .transpose(0, 1)
+            .contiguous()
+        )
         super(HermiteKANLayer, self).__init__(
             in_features,
             out_features,
@@ -159,13 +142,24 @@ class HermitePolynomial(nn.Module):
         Returns:
             torch.Tensor: Hermite bases tensor of shape (batch_size, poly_order, in_features).
         """
-        torch._assert(x.dim() == 2 and x.size(1) == self.in_features, "Input dimension does not match layer size")
-        x = torch.tanh((x - (self.grid[0, :] + self.grid[-1, :])) / (self.grid[-1, :] - self.grid[0, :]))  # Rescale into grid
-        hermite = torch.ones(x.shape[0], self.poly_order + 1, self.in_features, device=x.device)
+        torch._assert(
+            x.dim() == 2 and x.size(1) == self.in_features,
+            "Input dimension does not match layer size",
+        )
+        x = torch.tanh(
+            (x - (self.grid[0, :] + self.grid[-1, :]))
+            / (self.grid[-1, :] - self.grid[0, :])
+        )  # Rescale into grid
+        hermite = torch.ones(
+            x.shape[0], self.poly_order + 1, self.in_features, device=x.device
+        )
         if self.poly_order > 0:
             hermite[:, 1, :] = 2 * x
         for i in range(2, self.poly_order + 1):
-            hermite[:, i, :] = 2 * x * hermite[:, i - 1, :].clone() - 2 * (i - 1) * hermite[:, i - 2, :].clone()
+            hermite[:, i, :] = (
+                2 * x * hermite[:, i - 1, :].clone()
+                - 2 * (i - 1) * hermite[:, i - 2, :].clone()
+            )
         return hermite
 
     def get_subset(self, in_id, out_id, new_grid_size=None):

@@ -8,7 +8,7 @@ import torch.nn as nn
 
 class Grid(nn.Module):
     def __init__( self, in_features, size, order, grid_range= (-1,1), grid_alpha=0.02):
-        super().__init__(*args, **kwargs)
+        super().__init__()
 
         self.grid_size=size
         self.order = order # Define the grid order
