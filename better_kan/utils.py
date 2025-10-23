@@ -1,9 +1,10 @@
 import torch
+import torch.nn as nn
+import torch.nn.functional as F
+import torch.nn.utils.parametrize as parametrize
 import numpy as np
 from tqdm import tqdm
-import torch.nn.functional as F
 import copy
-import numpy as np
 
 
 def interpolate_moments_pytorch(mu_old, nu_old, new_shape):
@@ -256,7 +257,9 @@ def train(
         test_loss = loss_fn_eval(kan.forward(dataset["test_input"][test_id]), dataset["test_label"][test_id])
 
         if _ % log == 0:
-            pbar.set_description("train loss: %.2e | test loss: %.2e | reg: %.2e " % (torch.sqrt(train_loss).cpu().detach().numpy(), torch.sqrt(test_loss).cpu().detach().numpy(), reg_.cpu().detach().numpy()))
+            pbar.set_description(
+                "train loss: %.2e | test loss: %.2e | reg: %.2e " % (torch.sqrt(train_loss).cpu().detach().numpy(), torch.sqrt(test_loss).cpu().detach().numpy(), reg_.cpu().detach().numpy())
+            )
 
         if metrics is not None:
             for i in range(len(metrics)):
@@ -563,3 +566,46 @@ def create_dataset(f, n_var=2, ranges=[-1, 1], train_num=1000, test_num=1000, no
     dataset["test_label"] = test_label
 
     return dataset
+
+
+@torch.no_grad()
+def assign_parameters(module, param, new_value):
+    """
+    Workaround to the difference of assignation for paramerized and non parametrized Parameters
+    """
+    if parametrize.is_parametrized(module, param):  # TODO, to check
+        old_param = getattr(module, param)
+        if old_param.shape == new_value.shape:
+            setattr(module, param, new_value)
+        else:
+            plist = getattr(module.parametrizations, param)
+            # We remove the parametrizations
+            for P in reversed(plist):
+                parametrize.remove_parametrizations(module, param, P, leave_parametrized=True)
+            setattr(module, param, nn.Parameter(new_value))
+            # and but them back
+            for P in reversed(plist):
+                parametrize.register_parametrization(module, param, P, unsafe=True)
+
+    else:
+        old_param = getattr(module, param)
+        if old_param.shape == new_value.shape:
+            old_param.copy_(new_value)
+        else:
+            setattr(module, param, nn.Parameter(new_value))
+
+
+def svd_lstsq(AA, BB, tol=1e-12):
+    """
+    Workaround to SVD when on CUDA, to allow lstsq on rank-deficient matrices
+    Waiting for PR https://github.com/pytorch/pytorch/pull/126652 to be merged
+    """
+    U, S, Vh = torch.linalg.svd(AA, full_matrices=False)
+    Spinv = torch.zeros_like(S)
+
+    Spinv[S > tol * max(AA.shape) * S[0]] = 1 / S[S > tol * max(AA.shape) * S[0]]
+    UhBB = U.adjoint() @ BB
+    if Spinv.ndim != UhBB.ndim:
+        Spinv = Spinv.unsqueeze(-1)
+    SpinvUhBB = Spinv * UhBB
+    return Vh.adjoint() @ SpinvUhBB
