@@ -1,4 +1,4 @@
-import unittest
+import pytest
 import torch
 import torch.nn as nn
 from torch.nn.utils import parametrize
@@ -10,126 +10,124 @@ from better_kan.equivariance import (
 )
 
 
-class TestParametrizations(unittest.TestCase):
-    def setUp(self):
-        """Set up common variables for the tests."""
-        # Define a cyclic group of order 4 (rotations on a 4-element vector)
-        # This means features [0, 1, 2, 3] are permuted cyclically
+@pytest.fixture
+def test_setup():
+    """Provides a common setup for the equivariance tests."""
+    # Define a cyclic group of order 4 (rotations on a 4-element vector)
+    generators = equivariant_permutations_inputs([1, 1, 0, 0])
+    in_channels = 2
+    out_channels = 3
+    in_features = len(generators[0])
+    out_features = len(generators[0])
 
-        self.generators = equivariant_permutations_inputs([1, 1, 0, 0])
-
-        # self.generators = [
-        #     torch.tensor([1, 2, 3, 0]),
-        #     torch.tensor([2, 3, 0, 1]),
-        #     torch.tensor([3, 0, 1, 2]),
-        # ]
-        self.in_channels = 2
-        self.out_channels = 3
-        self.in_features = len(self.generators[0])
-        self.out_features = len(self.generators[0])
-
-    def test_equivariants_inputs(self):
-
-        generators = equivariant_permutations_inputs([1, 1, 1, 1])
-
-        self.assertEqual(len(generators), 2)
-        self.assertEqual(len(generators[0]), 4)
-        generators = equivariant_permutations_inputs(["a", "a", "b", "b", "a"])
-
-        self.assertEqual(len(generators), 3)
-
-    def test_weight_forward_shape(self):
-        """Test the shape of the output from EquivariantMatrix forward pass."""
-        weight_param = EquivariantMatrix(self.generators, self.generators, self.in_channels, self.out_channels)
-        stored_weight = torch.randn(weight_param.num_weights)
-        full_weight = weight_param(stored_weight)  # Argument is a dummy
-
-        expected_shape = (
-            self.out_features * self.out_channels,
-            self.in_features * self.in_channels,
-        )
-        self.assertEqual(full_weight.shape, expected_shape)
-
-    def test_bias_forward_shape(self):
-        """Test the shape of the output from EquivariantVector forward pass."""
-        bias_param = EquivariantVector(self.generators, self.out_channels)
-        stored_bias = torch.randn(bias_param.num_weights)
-        full_bias = bias_param(stored_bias)
-
-        expected_shape = (self.out_features * self.out_channels,)
-        self.assertEqual(full_bias.shape, expected_shape)
-
-    def test_weight_right_inverse(self):
-        """Test the right_inverse method for EquivariantMatrix."""
-        weight_param = EquivariantMatrix(self.generators, self.generators, self.in_channels, self.out_channels)
-
-        stored_weight = torch.randn(weight_param.num_weights)
-
-        # Generate the full weight matrix
-        full_weight_matrix = weight_param.forward(stored_weight)
-
-        # Use right_inverse to recover the unique weights
-        recovered_unique_weights = weight_param.right_inverse(full_weight_matrix)
-
-        # The recovered weights should be identical to the original ones
-        self.assertTrue(torch.allclose(stored_weight, recovered_unique_weights, atol=1e-6))
-
-        weight_full = weight_param.forward(weight_param.right_inverse(full_weight_matrix))
-
-        self.assertTrue(torch.allclose(weight_full, full_weight_matrix, atol=1e-6))
-
-    def test_bias_right_inverse(self):
-        """Test the right_inverse method for EquivariantVector."""
-        bias_param = EquivariantVector(self.generators, self.out_channels)
-
-        # Manually set unique biases
-        stored_bias = torch.randn(bias_param.num_weights)
-
-        # Generate the full bias vector
-        full_bias_vector = bias_param.forward(stored_bias)
-
-        # Recover the unique biases
-        recovered_unique_biases = bias_param.right_inverse(full_bias_vector)
-
-        # Check for correctness
-        self.assertTrue(torch.allclose(stored_bias, recovered_unique_biases, atol=1e-6))
-
-        bias_full = bias_param.forward(bias_param.right_inverse(full_bias_vector))
-
-        self.assertTrue(torch.allclose(bias_full, full_bias_vector, atol=1e-6))
-
-    def test_parametrization_on_linear(self):
-        """Tests applying EquivariantWeight directly to a standard nn.Linear layer."""
-        in_feats, out_feats = self.in_features, self.out_features
-        in_ch, out_ch = self.in_channels, self.out_channels
-
-        linear_layer = nn.Linear(in_feats * in_ch, out_feats * out_ch, bias=False)
-
-        torch.nn.init.normal_(linear_layer.weight)
-
-        weight_parametrization = EquivariantMatrix(self.generators, self.generators, in_ch, out_ch)
-        parametrize.register_parametrization(linear_layer, "weight", weight_parametrization)
-
-        expected_weight = weight_parametrization.forward(linear_layer.parametrizations.weight.original)
-        actual_weight = linear_layer.weight
-        self.assertTrue(torch.equal(actual_weight, expected_weight))
-
-        with torch.no_grad():
-            linear_layer.parametrizations.weight.original.data.normal_()
-
-        expected_weight_after_update = weight_parametrization.forward(linear_layer.parametrizations.weight.original)
-        actual_weight_after_update = linear_layer.weight
-        self.assertTrue(torch.equal(actual_weight_after_update, expected_weight_after_update))
-
-        with torch.no_grad():
-            new_weight = torch.randn_like(linear_layer.weight)
-            linear_layer.weight = new_weight
-
-        expected_weight_after_update = weight_parametrization.right_inverse(new_weight)
-        actual_weight_after_update = linear_layer.parametrizations.weight.original
-
-        self.assertTrue(torch.equal(actual_weight_after_update, expected_weight_after_update))
+    # Return a dictionary of the setup variables
+    return {
+        "generators": generators,
+        "in_channels": in_channels,
+        "out_channels": out_channels,
+        "in_features": in_features,
+        "out_features": out_features,
+    }
 
 
-if __name__ == "__main__":
-    unittest.main(argv=["first-arg-is-ignored"], exit=False)
+def test_equivariants_inputs():
+    """
+    Tests the helper function for creating equivariant permutation generators.
+    """
+    # Test with numeric labels
+    generators_numeric = equivariant_permutations_inputs([1, 1, 1, 1])
+    assert len(generators_numeric) == 2
+    assert len(generators_numeric[0]) == 4
+
+    # Test with string labels
+    generators_string = equivariant_permutations_inputs(["a", "a", "b", "b", "a"])
+    assert len(generators_string) == 3
+
+
+@pytest.mark.parametrize(
+    "model_class, constructor_args, expected_shape_func",
+    [
+        (
+            EquivariantMatrix,
+            lambda p: (p["generators"], p["generators"], p["in_channels"], p["out_channels"]),
+            lambda p: (p["out_features"] * p["out_channels"], p["in_features"] * p["in_channels"]),
+        ),
+        (
+            EquivariantVector,
+            lambda p: (p["generators"], p["out_channels"]),
+            lambda p: (p["out_features"] * p["out_channels"],),
+        ),
+    ],
+    ids=["weight", "bias"],
+)
+def test_forward_shape(test_setup, model_class, constructor_args, expected_shape_func):
+    """
+    Tests the forward pass output shape for both EquivariantMatrix and EquivariantVector.
+    """
+    params = test_setup
+    param_obj = model_class(*constructor_args(params))
+    expected_shape = expected_shape_func(params)
+
+    stored_tensor = torch.randn(param_obj.num_weights)
+    full_tensor = param_obj(stored_tensor)
+
+    assert full_tensor.shape == expected_shape
+
+
+@pytest.mark.parametrize(
+    "model_class, constructor_args",
+    [
+        (EquivariantMatrix, lambda p: (p["generators"], p["generators"], p["in_channels"], p["out_channels"])),
+        (EquivariantVector, lambda p: (p["generators"], p["out_channels"])),
+    ],
+    ids=["weight", "bias"],
+)
+def test_right_inverse(test_setup, model_class, constructor_args):
+    """
+    Tests that right_inverse is the correct inverse of the forward pass for both classes.
+    """
+    params = test_setup
+    param_obj = model_class(*constructor_args(params))
+
+    stored_tensor = torch.randn(param_obj.num_weights)
+
+    # Generate the full tensor and then recover the original stored tensor
+    full_tensor = param_obj.forward(stored_tensor)
+    recovered_tensor = param_obj.right_inverse(full_tensor)
+
+    # The recovered tensor should be identical to the original one
+    assert torch.allclose(stored_tensor, recovered_tensor, atol=1e-6)
+
+    # Applying forward then right_inverse on the full tensor should be idempotent
+    reconstructed_full_tensor = param_obj.forward(recovered_tensor)
+    assert torch.allclose(reconstructed_full_tensor, full_tensor, atol=1e-6)
+
+
+def test_parametrization_on_linear(test_setup):
+    """Tests applying EquivariantMatrix directly to a standard nn.Linear layer."""
+    params = test_setup
+    in_feats, out_feats = params["in_features"], params["out_features"]
+    in_ch, out_ch = params["in_channels"], params["out_channels"]
+
+    linear_layer = nn.Linear(in_feats * in_ch, out_feats * out_ch, bias=False)
+    torch.nn.init.normal_(linear_layer.weight)
+
+    weight_parametrization = EquivariantMatrix(params["generators"], params["generators"], in_ch, out_ch)
+    parametrize.register_parametrization(linear_layer, "weight", weight_parametrization)
+
+    # 1. Test that the forward pass of the parametrization is applied correctly
+    expected_weight = weight_parametrization.forward(linear_layer.parametrizations.weight.original)
+    assert torch.equal(linear_layer.weight, expected_weight)
+
+    # 2. Test that updating the original (raw) tensor propagates to the public tensor
+    with torch.no_grad():
+        linear_layer.parametrizations.weight.original.data.normal_()
+    expected_weight_after_update = weight_parametrization.forward(linear_layer.parametrizations.weight.original)
+    assert torch.equal(linear_layer.weight, expected_weight_after_update)
+
+    # 3. Test that setting the public tensor correctly updates the original via the inverse
+    with torch.no_grad():
+        new_weight = torch.randn_like(linear_layer.weight)
+        linear_layer.weight = new_weight
+    expected_original_after_update = weight_parametrization.right_inverse(new_weight)
+    assert torch.allclose(linear_layer.parametrizations.weight.original, expected_original_after_update)

@@ -63,7 +63,7 @@ def draw_matrix_parametrizations(parametrizations, cmap="rainbow", markersize=20
     def plot_single_matrix(ax, matrix):
         if markersize > 0:
             for wval in wvals:
-                x, y = np.nonzero(w == wval)
+                x, y = np.nonzero(matrix == wval)
                 x = w.shape[0] - x - 1
                 plt.scatter(x, y, s=markersize, marker=mrklist[wval % len(mrklist)], color=scalarMap.to_rgba(wval), alpha=1)
         ax.imshow(matrix, cmap=cmap, alpha=0.8, vmin=0, vmax=len(wvals) - 1, origin="lower", aspect="equal")
@@ -107,58 +107,83 @@ def create_colored_tensor(shape: tuple[int, ...], actions: list[list[torch.Tenso
     """
     Determines the unique parameters of a tensor under group actions on its axes.
 
-    This function "colors" the tensor elements. Elements that are mapped to each
-    other by the group actions will receive the same color, meaning they must
-    share the same weight.
+    This version correctly handles independent group actions on different axes, where
+    each action may be defined by a different number of generators. It also robustly
+    handles generators passed as Python lists.
 
     Args:
         shape (tuple[int, ...]): The shape of the tensor.
-        actions (list[list[torch.Tensor] | None]): A list of actions, one for each
-            axis of the tensor. Each action is a list of permutation generators.
-            If an axis is not permuted, its entry should be None.
+        actions (list[list[torch.Tensor] | None]): A list of actions for each axis.
 
     Returns:
         tuple[torch.Tensor, int]:
-            - A LongTensor of the given `shape` where each element is an integer
-              "color" (index) of the unique parameter it corresponds to.
+            - A LongTensor of the given `shape` with integer "colors".
             - The total number of unique colors (parameters).
     """
     if len(shape) != len(actions):
         raise ValueError("The length of shape and actions must be the same.")
 
-    # Tensor to store the color of each element, initialized to -1 (uncolored)
-    colors_tensor = torch.full(shape, -1, dtype=torch.long)
-    color_idx = 0
+    # 1. Separate dimensions into active (have actions) and stacked (None action)
+    active_dims, stack_dims = [], []
+    active_shape, stack_shape = [], []
+    active_actions = []
 
-    # Iterate through every position in the tensor
-    for initial_pos in product(*(range(s) for s in shape)):
-        if colors_tensor[initial_pos] == -1:  # If not yet colored
-            # Start a Breadth-First Search (BFS) to find all connected elements
+    for i, (size, action) in enumerate(zip(shape, actions)):
+        if action is None:
+            stack_dims.append(i)
+            stack_shape.append(size)
+        else:
+            active_dims.append(i)
+            active_shape.append(size)
+            # *** FIX: Ensure all generators are tensors for consistent indexing ***
+            processed_action = [torch.as_tensor(gen, dtype=torch.long) for gen in action]
+            active_actions.append(processed_action)
+
+    # 2. Color the smaller, active subspace first
+    if not active_dims:
+        num_colors = np.prod(shape).item()
+        return torch.arange(num_colors).view(shape), num_colors
+
+    active_shape = tuple(active_shape)
+    sub_colors = torch.full(active_shape, -1, dtype=torch.long)
+    num_sub_colors = 0
+
+    for initial_pos in product(*(range(s) for s in active_shape)):
+        if sub_colors[initial_pos] == -1:
             q = [initial_pos]
-            colors_tensor[initial_pos] = color_idx
-
+            sub_colors[initial_pos] = num_sub_colors
             head = 0
             while head < len(q):
                 current_pos = q[head]
                 head += 1
 
-                # Apply each generator to find where the current position maps to
-                for k in range(num_generators):
-                    next_pos_list = list(current_pos)
-                    # Apply the k-th generator to each axis that has an action
-                    for dim, action in enumerate(actions):
-                        if action is not None:
-                            gen_k_for_dim = action[k]
-                            next_pos_list[dim] = gen_k_for_dim[current_pos[dim]].item()
+                for dim_idx, generators_for_dim in enumerate(active_actions):
+                    for gen in generators_for_dim:
+                        next_pos_list = list(current_pos)
+                        original_coord = current_pos[dim_idx]
+                        # Now gen is guaranteed to be a tensor, so .item() is safe
+                        next_pos_list[dim_idx] = gen[original_coord].item()
 
-                    next_pos = tuple(next_pos_list)
-                    if colors_tensor[next_pos] == -1:
-                        colors_tensor[next_pos] = color_idx
-                        q.append(next_pos)
+                        next_pos = tuple(next_pos_list)
+                        if sub_colors[next_pos] == -1:
+                            sub_colors[next_pos] = num_sub_colors
+                            q.append(next_pos)
+            num_sub_colors += 1
 
-            color_idx += 1  # Move to the next color for the next component
+    # 3. Expand the coloring across the stacked dimensions
+    total_colors = num_sub_colors * np.prod(stack_shape).item()
+    final_colors_tensor = torch.empty(shape, dtype=torch.long)
 
-    return colors_tensor, color_idx
+    offset = 0
+    for stack_pos in product(*(range(s) for s in stack_shape)):
+        slice_indices = [slice(None)] * len(shape)
+        for i, idx in zip(stack_dims, stack_pos):
+            slice_indices[i] = idx
+
+        final_colors_tensor[tuple(slice_indices)] = sub_colors + offset
+        offset += num_sub_colors
+
+    return final_colors_tensor, total_colors
 
 
 ### The following code is borrowed from AutoEquiv https://github.com/mshakerinava/AutoEquiv
@@ -317,10 +342,11 @@ class EquivariantParametrization(nn.Module):
         self.register_buffer("idx_tensor", idx_tensor)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        if x.numel() != self.num_weights:
-            raise ValueError(f"Expected {self.num_unique_params} unique parameters, but got {x.numel()}")
+        # if x.numel() != self.num_weights:
+        #     raise ValueError(f"Expected {self.num_unique_params} unique parameters, but got {x.numel()}")
         full_tensor = x[self.idx_tensor]
-        return full_tensor.view(self.shape)
+        print(self.shape, full_tensor.shape)
+        return full_tensor  # .view(self.shape)
 
     def right_inverse(self, x: torch.Tensor) -> torch.Tensor:
         # Flatten both index and value tensors for bincount
@@ -340,9 +366,12 @@ if __name__ == "__main__":
 
     generators = equivariant_permutations_inputs(["a", "a", "b", "b", "a"])
 
-    parametrization_tensor = EquivariantVector(generators)
-    print(parametrization_tensor.idx_weight)
+    parametrization_tensor = EquivariantMatrix(generators, generators)
+    print(parametrization_tensor.idx_weight, parametrization_tensor.num_weights)
     draw_matrix_parametrizations(parametrization_tensor)
     plt.show()
-    parametrization_tensor = EquivariantParametrization((5, 1, 5), [generators, None, None])
-    print(parametrization_tensor.idx_tensor)
+    # parametrization_tensor = EquivariantParametrization((5, 1, 5), [generators, None, None])
+    # print(parametrization_tensor.idx_tensor)
+
+    # draw_matrix_parametrizations(parametrization_tensor)
+    # plt.show()

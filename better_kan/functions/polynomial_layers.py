@@ -18,6 +18,9 @@ class ChebyshevPolynomial(BasisFunction):
     @property
     def n_basis_function(self):
         return self.poly_order + 1
+    
+    def collocations_points(self):
+        return ??
 
     def basis(self, x: torch.Tensor):
         """
@@ -131,6 +134,9 @@ class HermitePolynomial(BasisFunction):
     @property
     def n_basis_function(self):
         return self.poly_order + 1
+    
+    def collocations_points(self):
+        return ??
 
     def basis(self, x: torch.Tensor):
         """
@@ -162,43 +168,3 @@ class HermitePolynomial(BasisFunction):
             )
         return hermite
 
-    def get_subset(self, in_id, out_id, new_grid_size=None):
-        """
-        get a smaller KANLayer from a larger KANLayer (used for pruning)
-
-        Args:
-        -----
-            in_id : list
-                id of selected input neurons
-            out_id : list
-                id of selected output neurons
-
-        Returns:
-        --------
-            newlayer : KANLayer
-
-        Example
-        -------
-        >>> kanlayer_large = KANLayer(in_dim=10, out_dim=10, num=5, k=3)
-        >>> kanlayer_small = kanlayer_large.get_subset([0,9],[1,2,3])
-        >>> kanlayer_small.in_dim, kanlayer_small.out_dim
-        (2, 3)
-        """
-
-        newlayer = HermiteKANLayer(
-            len(in_id),
-            len(out_id),
-            grid_size=self.grid_size if new_grid_size is None else new_grid_size,
-            mask=mask_subset(self, in_id),
-            poly_order=self.poly_order,
-            scale_base=self.scale_base,
-            scale_basis=self.scale_basis,
-            base_activation=type(self.base_activation),
-            grid_alpha=self.grid_alpha,
-            grid_range=self.grid_range,
-            sb_trainable=self.base_scaler.requires_grad,
-            sbasis_trainable=self.sbasis_trainable,
-            bias_trainable=self.bias.requires_grad,
-        )
-        newlayer.set_from_another_layer(self, in_id, out_id)
-        return newlayer

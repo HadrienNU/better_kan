@@ -10,7 +10,7 @@ import torch.nn.functional as F
 
 
 class Grid(nn.Module):
-    def __init__(self, in_features, size, order=0, grid_range=(-1, 1), grid_alpha=0.02):
+    def __init__(self, in_features, size, order=0, grid_range=(-1, 1), grid_alpha=0.02, auto_grid_allow_outside_points=0.1, auto_grid_allow_empty_bins=1):
         super().__init__()
 
         self.grid_size = size  # Number of point in the grid
@@ -20,6 +20,9 @@ class Grid(nn.Module):
         self.grid_range[:, 1] = grid_range[1]
         self.grid_alpha = grid_alpha
 
+        self.auto_grid_allow_outside_points = auto_grid_allow_outside_points
+        self.auto_grid_allow_empty_bins = auto_grid_allow_empty_bins
+
         self._initialize()
 
     def _initialize(self):
@@ -27,6 +30,12 @@ class Grid(nn.Module):
         h = (self.grid_range[:, 1] - self.grid_range[:, 0]) / (self.grid_size - 1)
         grid = torch.arange(-self.order, self.grid_size + self.order).unsqueeze(1) * h.unsqueeze(0) + self.grid_range[:, 0].unsqueeze(0)
         self.register_buffer("grid", grid)
+
+    def collocations_points(self, order=None):
+        """
+        Give a list of collocations points for exact integration against the grid
+        order is the polynomial order that give exact integration for Gauss Legendre quadrature
+        """
 
     def update(self, x, grid_size=-1, margin=0.01):
         batch = x.size(0)
@@ -41,7 +50,7 @@ class Grid(nn.Module):
 
         grid = self.grid_alpha * grid_uniform + (1 - self.grid_alpha) * grid_adaptive
 
-        self.grid_range = torch.concatenate((x_sorted[-1], x_sorted[0]), dim=1)
+        self.grid_range = torch.stack((x_sorted[-1], x_sorted[0]), dim=1)
 
         if self.order > 0:
             grid = torch.concatenate(
@@ -54,6 +63,43 @@ class Grid(nn.Module):
             )
         self.grid = grid  # De toute façon ce n'est pas un paramètre
         # assign_parameters(self, "grid", grid)
+
+    @torch.no_grad()
+    def trigger_grid_update(self, x: torch.Tensor):
+        """
+        Compute proportion of input that are out of the grid
+        That would trigger automatic grid update
+        """
+
+        in_bins = ((x.unsqueeze(1) >= self.grid[:-1, :]) & (x.unsqueeze(1) < self.grid[1:, :])).to(x.dtype).sum(dim=0)  # If we want to check if there is a lot of empty bins
+        nb_empty_bins = (in_bins == 0).sum(dim=0)
+
+        out_points = torch.logical_or((x >= self.grid[-1, :]), (x < self.grid[0, :])).mean(dim=0, dtype=torch.float64)
+        return torch.any(out_points > self.auto_grid_allow_outside_points) or torch.any(nb_empty_bins > self.auto_grid_allow_empty_bins)  # If too many points
+
+    @torch.no_grad()  # TODO: Check the code
+    def get_grid_subset(self, in_id=None):
+        """
+        Get grid from a parent and compute grid and weights
+        """
+        if in_id is None:
+            in_id = torch.arange(self.in_features)
+
+        old_grid = self.grid
+
+        x_sorted = torch.sort(old_grid, dim=0)[0]
+        points = torch.linspace(0, old_grid.size(0) - 1.0, self.grid.size(0), dtype=x_sorted.dtype, device=self.grid.device)
+        indices = torch.floor(points)
+        floating_part = (points - indices).unsqueeze(1)
+        indices = indices.to(torch.int64)
+        # The next two line deal with the special case of the end point
+        floating_part[indices == old_grid.size(0) - 1, :] += 1.0
+        indices[indices == old_grid.size(0) - 1] -= 1
+        new_grid = x_sorted[indices] * (1.0 - floating_part) + x_sorted[indices + 1] * floating_part
+
+        self.grid = new_grid[:, in_id]
+
+        return self
 
 
 class ParametrizedGrid(Grid):
@@ -69,12 +115,12 @@ class ParametrizedGrid(Grid):
         h = (self.grid_range[:, 1] - self.grid_range[:, 0]).unsqueeze(0)
         grid = self.grid_range[:, 0].unsqueeze(0) + h * torch.cumsum(F.softmax(self.s, dim=0), dim=0)
         # add extra point
+        uniform_step = h / (self.grid_size - 1)
         grid = torch.concatenate(
             [
-                grid[:1] - h * torch.arange(self.order, 0, -1).unsqueeze(1),
-                self.grid_range[:, 0].unsqueeze(0),
+                grid[:1] - uniform_step * torch.arange(self.order + 1, 0, -1).unsqueeze(1),
                 grid,
-                grid[-1:] + h * torch.arange(1, self.order + 1).unsqueeze(1),
+                grid[-1:] + uniform_step * torch.arange(1, self.order + 1).unsqueeze(1),
             ],
             dim=0,
         )
@@ -85,22 +131,9 @@ class ParametrizedGrid(Grid):
         """
         From a grid, give the s values
         """
+        assert grid.shape == (self.s.shape[0] + 1 + 2 * self.order, self.s.shape[1])
         if self.order > 0:
-            grid = grid[:, self.order : -self.order]
+            grid = grid[self.order : -self.order, :]
         smax = torch.diff(grid, dim=0)
         self.grid_size = smax.shape[0]
         self.s = nn.Parameter(torch.log(smax))
-
-
-if __name__ == "__main__":
-    grid = Grid(3, 5)
-
-    print(grid.grid)
-    print(grid.grid.shape)
-
-    grid = ParametrizedGrid(3, 5)
-    print(grid.grid.shape)
-    print(grid.grid)
-    h = torch.ones((3, 1)) * 0.25
-    grid.grid = torch.arange(0, 5).unsqueeze(0) * h
-    print(grid.s.shape)
