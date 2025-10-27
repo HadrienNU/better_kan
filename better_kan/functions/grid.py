@@ -6,7 +6,21 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-# from ..utils import assign_parameters
+import numpy as np
+
+from ..utils import assign_parameters
+
+
+class DummyGrid:
+    """
+    A Dummy grid class to avoid issue with initialisation order with nn.Module,
+    only hold some grid attribute
+    """
+
+    def __init__(self, grid):
+        self.grid_size = grid.grid_size
+        self.order = grid.order
+        self.grid_range = grid.grid_range
 
 
 class Grid(nn.Module):
@@ -31,11 +45,24 @@ class Grid(nn.Module):
         grid = torch.arange(-self.order, self.grid_size + self.order).unsqueeze(1) * h.unsqueeze(0) + self.grid_range[:, 0].unsqueeze(0)
         self.register_buffer("grid", grid)
 
-    def collocations_points(self, order=None):
+    @property
+    def n_intervals(self):  # TODO: check the number
+        return self.grid_size - 1 + 2 * self.order
+
+    def collocations_points(self, n=None):
         """
         Give a list of collocations points for exact integration against the grid
-        order is the polynomial order that give exact integration for Gauss Legendre quadrature
+        n is the polynomial order that give exact integration for Gauss Legendre quadrature
         """
+
+        if n is None:
+            n = self.order + 1
+
+        nodes, weights = np.polynomial.legendre.leggauss(n)
+        nodes_torch = torch.from_numpy(nodes).unsqueeze(1).unsqueeze(2).repeat(-1, self.grid_size - 1 + self.order, self.in_features)
+        weights_torch = torch.from_numpy(weights).unsqueeze(1).unsqueeze(2).repeat(-1, self.grid_size - 1, self.in_features)
+
+        raise NotImplementedError
 
     def update(self, x, grid_size=-1, margin=0.01):
         batch = x.size(0)
@@ -61,8 +88,8 @@ class Grid(nn.Module):
                 ],
                 dim=0,
             )
-        self.grid = grid  # De toute façon ce n'est pas un paramètre
-        # assign_parameters(self, "grid", grid)
+        # self.grid = grid  # De toute façon ce n'est pas un paramètre
+        assign_parameters(self, "grid", grid)
 
     @torch.no_grad()
     def trigger_grid_update(self, x: torch.Tensor):

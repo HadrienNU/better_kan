@@ -1,5 +1,7 @@
 import torch
-from . import BasisFunction
+from .base import BasisFunction
+
+from numpy.polynomial.legendre import leggauss
 
 
 class ChebyshevPolynomial(BasisFunction):
@@ -10,17 +12,19 @@ class ChebyshevPolynomial(BasisFunction):
         poly_order=3,
         **kwargs,
     ):
-
         self.poly_order = poly_order
-        self.register_buffer("arange", torch.arange(0, self.poly_order + 1, 1))
         super(ChebyshevPolynomial, self).__init__(in_features, out_features, **kwargs)
+        self.register_buffer("arange", torch.arange(0, self.poly_order + 1, 1))
 
     @property
     def n_basis_function(self):
         return self.poly_order + 1
-    
+
     def collocations_points(self):
-        return ??
+        nodes, weights = leggauss(self.poly_order + 1)
+        nodes_torch = torch.from_numpy(nodes)
+        weights_torch = torch.from_numpy(weights)
+        return nodes_torch.unsqueeze(1).expand(-1, self.in_features), weights_torch.unsqueeze(1).expand(-1, self.in_features)
 
     def basis(self, x: torch.Tensor):
         """
@@ -36,14 +40,9 @@ class ChebyshevPolynomial(BasisFunction):
             x.dim() == 2 and x.size(1) == self.in_features,
             "Input dimension does not match layer size",
         )
-        x = torch.tanh(
-            (x - (self.grid[0, :] + self.grid[-1, :]))
-            / (self.grid[-1, :] - self.grid[0, :])
-        )  # Rescale into grid
+        x = torch.tanh(x)  # Rescale into [-1,1]
         # View and repeat input degree + 1 times
-        x = x.view((-1, self.in_features, 1)).expand(
-            -1, -1, self.poly_order + 1
-        )  # shape = (batch_size, in_features, self.degree + 1)
+        x = x.view((-1, self.in_features, 1)).expand(-1, -1, self.poly_order + 1)  # shape = (batch_size, in_features, self.degree + 1)
         # Apply acos
         x = x.acos()
         # Multiply by arange [0 .. degree]
@@ -97,12 +96,7 @@ class HermitePolynomial(BasisFunction):
     ):
 
         h = (grid_range[1] - grid_range[0]) / grid_size
-        grid = (
-            (torch.arange(grid_size) * h + grid_range[0])
-            .expand(in_features, -1)
-            .transpose(0, 1)
-            .contiguous()
-        )
+        grid = (torch.arange(grid_size) * h + grid_range[0]).expand(in_features, -1).transpose(0, 1).contiguous()
         super(HermiteKANLayer, self).__init__(
             in_features,
             out_features,
@@ -134,9 +128,9 @@ class HermitePolynomial(BasisFunction):
     @property
     def n_basis_function(self):
         return self.poly_order + 1
-    
+
     def collocations_points(self):
-        return ??
+        raise NotImplementedError
 
     def basis(self, x: torch.Tensor):
         """
@@ -152,19 +146,10 @@ class HermitePolynomial(BasisFunction):
             x.dim() == 2 and x.size(1) == self.in_features,
             "Input dimension does not match layer size",
         )
-        x = torch.tanh(
-            (x - (self.grid[0, :] + self.grid[-1, :]))
-            / (self.grid[-1, :] - self.grid[0, :])
-        )  # Rescale into grid
-        hermite = torch.ones(
-            x.shape[0], self.poly_order + 1, self.in_features, device=x.device
-        )
+        x = torch.tanh((x - (self.grid[0, :] + self.grid[-1, :])) / (self.grid[-1, :] - self.grid[0, :]))  # Rescale into grid
+        hermite = torch.ones(x.shape[0], self.poly_order + 1, self.in_features, device=x.device)
         if self.poly_order > 0:
             hermite[:, 1, :] = 2 * x
         for i in range(2, self.poly_order + 1):
-            hermite[:, i, :] = (
-                2 * x * hermite[:, i - 1, :].clone()
-                - 2 * (i - 1) * hermite[:, i - 2, :].clone()
-            )
+            hermite[:, i, :] = 2 * x * hermite[:, i - 1, :].clone() - 2 * (i - 1) * hermite[:, i - 2, :].clone()
         return hermite
-

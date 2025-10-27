@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
-from . import GridBasedFunction
+from .base import GridBasedFunction
+from .grid import DummyGrid
 
 
 def gaussian_rbf(distances):
@@ -78,12 +79,12 @@ class RBFFunction(GridBasedFunction):
     ):
 
         grid.order = 0
-
-        sigmas = torch.ones(grid.size, in_features)
-        self.sigmas = nn.Parameter(sigmas, requires_grad=optimize_sigmas)
-        self.get_sigmas_from_grid()
-
+        self.grid = DummyGrid(grid)
         super(RBFFunction, self).__init__(in_features, out_features, grid, **kwargs)
+
+        sigmas = torch.ones(self.grid.grid_size, in_features)
+        self.sigmas = nn.Parameter(sigmas, requires_grad=optimize_sigmas)
+        # self.get_sigmas_from_grid()
 
         # Base functions
         self.rbf_name = rbf_kernel
@@ -91,15 +92,16 @@ class RBFFunction(GridBasedFunction):
 
     @property
     def n_basis_function(self):
-        return self.grid.size + 1
+        return self.grid.grid_size
 
     @torch.no_grad()
     def get_sigmas_from_grid(self):  # Get it from gradient of the sorted grid
-        sorted_grid, inds_sort = torch.sort(self.grid, dim=0)
-        batch_indices = torch.arange(self.grid.size(1), device=self.sigmas.device).unsqueeze(0).expand_as(inds_sort)
+        grid = self.grid.grid
+        sorted_grid, inds_sort = torch.sort(grid, dim=0)
+        batch_indices = torch.arange(grid.size(1), device=self.sigmas.device).unsqueeze(0).expand_as(inds_sort)
         self.sigmas[inds_sort, batch_indices] = 1.2 / torch.gradient(sorted_grid, dim=0)[0]
         return self.sigmas
 
     def basis(self, x):
-        distances = x.unsqueeze(1) - self.grid.unsqueeze(0)
+        distances = x.unsqueeze(1) - self.grid.grid.unsqueeze(0)
         return self.rbf(distances * self.sigmas.unsqueeze(0))

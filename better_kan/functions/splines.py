@@ -4,18 +4,20 @@ import torch.nn.init as init
 import torch.nn.functional as F
 import torch.nn.utils.parametrize as parametrize
 
-from . import GridBasedFunction
+from .base import GridBasedFunction
+from .grid import DummyGrid
 
 
 class Splines(GridBasedFunction):
-    def __init__(self, in_features, out_features, grid, k=3, fast_version=False, scale=0.1):
+    def __init__(self, in_features, out_features, grid, k=3, fast_version=False):
         grid.order = k
         self.spline_order = k
-        super().__init__(in_features, out_features, grid, fast_version, scale)
+        self.grid = DummyGrid(grid)  # To avoid issue with initialisation
+        super().__init__(in_features, out_features, grid, fast_version)
 
     @property
     def n_basis_function(self):
-        return self.grid.grid_size + self.spline_order
+        return self.grid.grid_size + self.spline_order - 1
 
     def basis(self, x: torch.Tensor):
         """
@@ -32,7 +34,7 @@ class Splines(GridBasedFunction):
             "Input dimension does not match layer size",
         )
 
-        grid: torch.Tensor = self.grid  # (grid_size + 2 * spline_order + 1, in_features)
+        grid: torch.Tensor = self.grid.grid  # (grid_size + 2 * spline_order + 1, in_features)
         x = x.unsqueeze(1)
         bases = ((x >= grid[:-1, :]) & (x < grid[1:, :])).to(x.dtype)
         for k in range(1, self.spline_order + 1):
@@ -45,18 +47,19 @@ class Splines(GridBasedFunction):
 
 
 class GridReLU(GridBasedFunction):
-    def __init__(self, in_features, out_features, grid, k=3, fast_version=False, scale=0.1):
+    def __init__(self, in_features, out_features, grid, k=3, fast_version=False):
         grid.order = k
         self.spline_order = k
-        super().__init__(in_features, out_features, grid, fast_version, scale)
+        self.grid = DummyGrid(grid)  # To avoid issue with initialisation
+        super().__init__(in_features, out_features, grid, fast_version)
 
     @property
     def n_basis_function(self):
-        return self.grid.grid_size + self.spline_order
+        return self.grid.grid_size - 1 + self.spline_order
 
     def basis(self, x: torch.Tensor):
         """
-        Compute the B-spline bases for the given input tensor.
+        Compute the ReLU bases for the given input tensor.
 
         Args:
             x (torch.Tensor): Input tensor of shape (batch_size, in_features).
@@ -69,7 +72,7 @@ class GridReLU(GridBasedFunction):
             "Input dimension does not match layer size",
         )
 
-        grid: torch.Tensor = self.grid  # (grid_size + 2 * spline_order + 1, in_features)
+        grid: torch.Tensor = self.grid.grid  # (grid_size + 2 * spline_order + 1, in_features)
         x = x.unsqueeze(1)
         x1 = 2 * torch.relu(x - grid[: -(self.spline_order + 1), :]) / (grid[self.spline_order + 1 :, :] - grid[: -(self.spline_order + 1), :])
         x2 = 2 * torch.relu(grid[(self.spline_order + 1) :, :] - x) / (grid[self.spline_order + 1 :, :] - grid[: -(self.spline_order + 1), :])

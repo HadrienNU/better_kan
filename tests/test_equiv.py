@@ -131,3 +131,13 @@ def test_parametrization_on_linear(test_setup):
         linear_layer.weight = new_weight
     expected_original_after_update = weight_parametrization.right_inverse(new_weight)
     assert torch.allclose(linear_layer.parametrizations.weight.original, expected_original_after_update)
+
+
+# TODO: Add test for layer parametrization for equivariance
+@pytest.mark.skip(reason="no way of currently testing this")
+def test_parametrization_layer():
+    generators = equivariant_permutations_inputs(["a", "a", "b", "b", "c", "a", "b"])
+    in_channels = 2
+    out_channels = 3
+    in_features = len(generators[0])
+    out_features = len(generators[0])
