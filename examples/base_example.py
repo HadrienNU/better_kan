@@ -7,19 +7,22 @@ from better_kan import build_KAN, create_dataset, plot, train
 from better_kan.functions import Splines
 
 model = build_KAN(Splines, [2, 5, 1], grid_size=5, fast_version=False)
-
+for layer in model.layers:
+    layer.reset_parameters(init_type="noise", scale=0.1)
 
 f = lambda x: torch.exp(torch.sin(torch.pi * x[:, [0]]) + x[:, [1]] ** 2)
 dataset = create_dataset(f, n_var=2)
 print(dataset["train_input"].shape, dataset["train_label"].shape)
 
 print(model)
-model(dataset["train_input"])
+
 model.update_grid(dataset["train_input"])
+
+
 plot(model, title="KAN_initialisation", tick=False)
 
 
-results = train(model, dataset, opt="LBFGS", steps=60, lamb=0.05)
+results = train(model, dataset, opt="LBFGS", steps=200, lamb=0.005)
 
 plt.figure()
 

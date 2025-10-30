@@ -54,6 +54,11 @@ class KANLayer(nn.Module):
 
         self.set_speed_mode(fast_version)
 
+    def reset_parameters(self, init_type, **init_kwargs):
+        for fct in self.functions:
+            if hasattr(fct, "reset_parameters"):
+                fct.reset_parameters(init_type, **init_kwargs)
+
     def forward(self, x: torch.Tensor):
         # Depending if the functions are in slow or fast mode
         if self.fast_mode:
