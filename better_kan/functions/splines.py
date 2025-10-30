@@ -9,11 +9,11 @@ from .grid import DummyGrid
 
 
 class Splines(GridBasedFunction):
-    def __init__(self, in_features, out_features, grid, k=3, fast_version=False):
+    def __init__(self, in_features, out_features, grid, k=3):
         grid.order = k
         self.spline_order = k
         self.grid = DummyGrid(grid)  # To avoid issue with initialisation
-        super().__init__(in_features, out_features, grid, fast_version)
+        super().__init__(in_features, out_features, grid)
 
     @property
     def n_basis_function(self):
@@ -47,11 +47,11 @@ class Splines(GridBasedFunction):
 
 
 class GridReLU(GridBasedFunction):
-    def __init__(self, in_features, out_features, grid, k=3, fast_version=False):
+    def __init__(self, in_features, out_features, grid, k=3):
         grid.order = k
         self.spline_order = k
         self.grid = DummyGrid(grid)  # To avoid issue with initialisation
-        super().__init__(in_features, out_features, grid, fast_version)
+        super().__init__(in_features, out_features, grid)
 
     @property
     def n_basis_function(self):

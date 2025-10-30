@@ -3,11 +3,13 @@ import torch.nn as nn
 import numpy as np
 import matplotlib.pyplot as plt
 
-from better_kan import KAN, build_splines_layers, create_dataset, plot, train
+from better_kan import build_KAN, create_dataset, plot, train
+from better_kan.functions import Splines
 
 
-# Build model with some permutation invariant input
-model = KAN(build_splines_layers([7, 4, 1], grid_size=5, permutation_invariants=[0, 1, 1, 1, 1, 2, 2], sbasis_trainable=True, sb_trainable=False))  #
+model = build_KAN(Splines, [7, 7, 1], grid_size=5, fast_version=True)
+
+permutation_invariants = [0, 1, 1, 1, 1, 2, 2]
 
 
 f = lambda x: 1 / (1 + torch.exp(-(torch.sin(torch.pi * x[:, [0]]) + x[:, [1]] ** 2 + x[:, [2]] ** 2 + x[:, [3]] ** 2 + x[:, [4]] ** 2 - (x[:, [5]] - x[:, [6]]).abs() ** 0.5)))
@@ -17,8 +19,8 @@ print(dataset["train_input"].shape, dataset["train_label"].shape)
 model.update_grid(dataset["train_input"])
 
 print(model)
-print(model.layers[0].parametrizations.weights.original0.shape)
-print(model.layers[1].parametrizations.weights.original0.shape)
+print(model.layers[0].functions[0].parametrizations.weights.original0.shape)
+print(model.layers[1].functions[0].parametrizations.weights.original0.shape)
 
 
 results = train(model, dataset, opt="Adam", steps=5000, update_grid=True, stop_grid_update_step=5000, grid_update_freq=50, lamb=0.01, lr=1e-2)

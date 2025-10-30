@@ -1,63 +1,27 @@
 import torch
 import copy
 
-# from .layers import RBFKANLayer, SplinesKANLayer
-# from .polynomial_layers import ChebyshevKANLayer
-# from .equivariance import invariant_input
-
-# Two helpers functions to build stack  of KAN layers
+from .layers import build_layer
 
 
-# def build_rbf_layers(
-#     layers_hidden,
-#     permutation_invariants=None,
-#     add_batch_norm=False,
-#     **kwargs,
-# ):
-#     return build_layers([RBFKANLayer] * (len(layers_hidden) - 1), layers_hidden, permutation_invariants, add_batch_norm, **kwargs)
-
-
-# def build_splines_layers(
-#     layers_hidden,
-#     permutation_invariants=None,
-#     add_batch_norm=False,
-#     **kwargs,
-# ):
-#     return build_layers([SplinesKANLayer] * (len(layers_hidden) - 1), layers_hidden, permutation_invariants, add_batch_norm, **kwargs)
-
-
-# def build_chebyshev_layers(
-#     layers_hidden,
-#     permutation_invariants=None,
-#     add_batch_norm=False,
-#     **kwargs,
-# ):
-#     return build_layers([ChebyshevKANLayer] * (len(layers_hidden) - 1), layers_hidden, permutation_invariants, add_batch_norm, **kwargs)
-
-
-# def build_layers(
-#     layers_types,
-#     layers_hidden,
-#     permutation_invariants=None,
-#     add_batch_norm=False,
-#     **kwargs,
-# ):
-#     masks = [None] * (len(layers_hidden) - 1)
-#     if permutation_invariants is not None:
-#         masks[0] = invariant_input(permutation_invariants)
-#     layers = torch.nn.ModuleList()
-#     for layer_cls, in_features, out_features, mask in zip(layers_types, layers_hidden, layers_hidden[1:], masks):
-#         if add_batch_norm:
-#             layers.append(torch.nn.BatchNorm1d(in_features))  # Normalize input
-#         layers.append(
-#             layer_cls(
-#                 in_features,
-#                 out_features,
-#                 mask=mask,
-#                 **kwargs,
-#             )
-#         )
-#     return layers
+def build_KAN(
+    layers_types,
+    layers_hidden,
+    add_batch_norm=False,
+    **kwargs,
+):
+    """
+    Helper function to build stack of KAN layers
+    """
+    if not isinstance(layers_types, list):
+        layers_types = [layers_types] * (len(layers_hidden) - 1)
+    layers = torch.nn.ModuleList()
+    for layer_cls, in_features, out_features in zip(layers_types, layers_hidden, layers_hidden[1:]):
+        if add_batch_norm:
+            layers.append(torch.nn.BatchNorm1d(in_features))  # Normalize input
+        layer = build_layer(in_features, out_features, layer_cls, **kwargs)
+        layers.append(layer)
+    return KAN(layers)
 
 
 class KAN(torch.nn.Module):
@@ -78,26 +42,12 @@ class KAN(torch.nn.Module):
         for layer in self.layers:
             if hasattr(layer, "update_grid"):
                 layer.update_grid(x, grid_size=grid_size)
-            x = layer(x)
+            if x is not None:
+                x = layer(x)
         return x
 
     def regularization_loss(self, regularize_activation=1.0, regularize_entropy=1.0):
-        return sum(
-            layer.regularization_loss(regularize_activation, regularize_entropy)
-            for layer in self.layers
-            if hasattr(layer, "regularization_loss")
-        )
-
-    def initialize_from_another_model(self, other):
-        """
-        Initialize the grid and weight of current model from another one
-        """
-        for n, layer in enumerate(self.layers):
-            if hasattr(layer, "set_from_another_layer"):
-                layer.set_from_another_layer(other.layers[n])
-            else:
-                layer = copy.deepcopy(other.layers[n])
-        return self
+        return sum(layer.regularization_loss(regularize_activation, regularize_entropy) for layer in self.layers if hasattr(layer, "regularization_loss"))
 
     def prune(self, threshold=1e-2, mode="auto", active_neurons_id=None):
         """
@@ -110,9 +60,10 @@ class KAN(torch.nn.Module):
             threshold : float
                 the threshold used to determine whether a node is small enough
             mode : str
-                "auto" or "manual". If "auto", the thresold will be used to automatically prune away nodes. If "manual", active_neuron_id is needed to specify which neurons are kept (others are thrown away).
-            active_neuron_id : list of id lists
-                For example, [[0,1],[0,2,3]] means keeping the 0/1 neuron in the 1st hidden layer and the 0/2/3 neuron in the 2nd hidden layer. Pruning input and output neurons is not supported yet.
+                "auto", "highest" or "manual". If "auto", the thresold will be used to automatically prune away nodes. If "highest", active If "manual", active_neuron_id give the number of neurons to keep at each hidden layer is needed to specify which neurons are kept (others are thrown away).
+            active_neuron_id : list of id lists or list of number of neurons to keep
+                For example, in "manual" mode [[0,1],[0,2,3]] means keeping the 0/1 neuron in the 1st hidden layer and the 0/2/3 neuron in the 2nd hidden layer. Pruning input and output neurons is not supported yet.
+                In "highest" mode [2,3] means keep 2 neurons in the first hidden layer and 3 in the second ones
 
         Returns:
         --------
@@ -129,36 +80,28 @@ class KAN(torch.nn.Module):
 
         active_neurons = [list(range(self.width[0]))]  # Input size
         for i in range(len(self.layers) - 1):  # Not considering first and last layers
-            if hasattr(self.layers[i], "l1_norm") and hasattr(
-                self.layers[i + 1], "l1_norm"
-            ):  # Skip layer that are not KAN
+            if hasattr(self.layers[i], "l1_norm") and hasattr(self.layers[i + 1], "l1_norm"):  # Skip layer that are not KAN
                 if mode == "auto":
-                    in_important = (
-                        torch.max(self.layers[i].l1_norm, dim=1)[0] > threshold
-                    )
-                    out_important = (
-                        torch.max(self.layers[i + 1].l1_norm, dim=0)[0] > threshold
-                    )
+                    in_important = torch.max(self.layers[i].l1_norm, dim=1)[0] > threshold
+                    out_important = torch.max(self.layers[i + 1].l1_norm, dim=0)[0] > threshold
                     overall_important = in_important * out_important
+                elif mode == "highest":
+                    inout_important = torch.max(self.layers[i].l1_norm, dim=1)[0] + torch.max(self.layers[i + 1].l1_norm, dim=0)[0]
+                    overall_important = torch.zeros(self.width[i + 1], dtype=torch.bool)
+                    overall_important[torch.argsort(inout_important, descending=True)[: active_neurons_id[i]]] = True
                 elif mode == "manual":
                     overall_important = torch.zeros(self.width[i + 1], dtype=torch.bool)
                     overall_important[active_neurons_id[i]] = True
-                active_neurons.append(
-                    torch.where(overall_important == True)[0].to(
-                        device=self.layers[i].weights.device
-                    )
-                )
+                active_neurons.append(torch.where(overall_important == True)[0].to(device=self.layers[i].bias.device))
             else:
                 active_neurons.append(list(range(self.width[i + 1])))
         active_neurons.append(list(range(self.width[-1])))  # Output size
 
         new_layers = torch.nn.ModuleList()
         for i in range(len(self.width) - 1):
-            if hasattr(self.layers[i], "get_subset"):
-                new_layers.append(
-                    self.layers[i].get_subset(active_neurons[i], active_neurons[i + 1])
-                )
-            else:
-                new_layers.append(copy.deepcopy(self.layers[i]))
+            # new_layer = copy.deepcopy(self.layers[i])
+            if hasattr(self.layers[i], "get_inout_subset"):
+                self.layers[i].get_inout_subset(active_neurons[i], active_neurons[i + 1])
+            # new_layers.append(new_layer)
 
-        return KAN(new_layers)
+        return self

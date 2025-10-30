@@ -3,8 +3,8 @@ import torch.nn as nn
 import numpy as np
 import matplotlib.pyplot as plt
 
-from better_kan import KAN, build_rbf_layers, train
-
+from better_kan import build_KAN, create_dataset, plot, train
+from better_kan.functions import RBFFunction
 
 datasets = []
 
@@ -34,12 +34,17 @@ for i in range(1, 6):
     plt.subplot(1, 5, i)
     group_id = i - 1
     plt.plot(x_grid.detach().numpy(), y.detach().numpy(), color="black", alpha=0.1)
-    plt.scatter(x_sample[group_id * n_num_per_peak : (group_id + 1) * n_num_per_peak].detach().numpy(), y_sample[group_id * n_num_per_peak : (group_id + 1) * n_num_per_peak].detach().numpy(), color="black", s=2)
+    plt.scatter(
+        x_sample[group_id * n_num_per_peak : (group_id + 1) * n_num_per_peak].detach().numpy(),
+        y_sample[group_id * n_num_per_peak : (group_id + 1) * n_num_per_peak].detach().numpy(),
+        color="black",
+        s=2,
+    )
     plt.xlim(-1, 1)
     plt.ylim(-1, 2)
 
+model = build_KAN(RBFFunction, [1, 1], grid_size=200, fast_version=False)
 
-model = KAN(build_rbf_layers([1, 1], grid_size=200, bias_trainable=False, sbasis_trainable=False, sb_trainable=False))
 
 ys = []
 for group_id in range(n_peak):

@@ -3,7 +3,8 @@ import torch.nn as nn
 import matplotlib.pyplot as plt
 
 from better_kan import KAN, build_rbf_layers, build_splines_layers, create_dataset, plot, train
-
+from better_kan import build_KAN, create_dataset, plot, train
+from better_kan.functions import Splines, RBF
 
 layers = build_rbf_layers([2, 3], grid_size=4)
 

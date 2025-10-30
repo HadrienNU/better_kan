@@ -7,6 +7,8 @@ import numpy as np
 
 from better_kan import KAN, build_splines_layers, build_rbf_layers, create_dataset, plot
 from better_kan.utils import transition_optimizer_state
+from better_kan import build_KAN, create_dataset, plot, train
+from better_kan.functions import Splines
 
 
 def train(
@@ -45,7 +47,6 @@ def train(
         for i in range(len(metrics)):
             results[metrics[i].__name__] = []
 
-
     global train_loss, reg_
 
     def closure():
@@ -65,12 +66,12 @@ def train(
             # print([(k,p.shape) for k,p in kan.named_parameters()])
             kan.update_grid(dataset["train_input"], grid_size=grid_upds[epoch])
             # Reset optimisers
-            print([(k,p.shape) for k,p in kan.named_parameters()])
+            print([(k, p.shape) for k, p in kan.named_parameters()])
             if opt == "Adam":
                 new_params = dict(kan.named_parameters())
                 new_optimizer_state = transition_optimizer_state(old_params, new_params, optimizer)
                 # print("New",new_optimizer_state)
-                optimizer = torch.optim.Adam(kan.parameters(), lr=optimizer.param_groups[0]['lr'])
+                optimizer = torch.optim.Adam(kan.parameters(), lr=optimizer.param_groups[0]["lr"])
                 optimizer.load_state_dict(new_optimizer_state)
             elif opt == "LBFGS":
                 optimizer = torch.optim.LBFGS(kan.parameters(), lr=lr, history_size=10, line_search_fn="strong_wolfe", tolerance_grad=1e-32, tolerance_change=1e-32)
@@ -90,7 +91,9 @@ def train(
         test_loss = loss_fn_eval(kan.forward(dataset["test_input"]), dataset["test_label"])
 
         if epoch % log == 0:
-            pbar.set_description("train loss: %.2e | test loss: %.2e | reg: %.2e " % (torch.sqrt(train_loss).cpu().detach().numpy(), torch.sqrt(test_loss).cpu().detach().numpy(), reg_.cpu().detach().numpy()))
+            pbar.set_description(
+                "train loss: %.2e | test loss: %.2e | reg: %.2e " % (torch.sqrt(train_loss).cpu().detach().numpy(), torch.sqrt(test_loss).cpu().detach().numpy(), reg_.cpu().detach().numpy())
+            )
 
         if metrics is not None:
             for i in range(len(metrics)):
@@ -108,7 +111,7 @@ torch.manual_seed(7)
 model = KAN(build_splines_layers([4, 10, 1], grid_size=3, fast_version=True))
 
 
-f = lambda x: torch.exp(0.5*torch.sin((torch.pi * x[:, [0]]**2) + (torch.pi * x[:, [1]]**2)) + 0.5*torch.sin((torch.pi * x[:, [2]]**2) + (torch.pi * x[:, [3]]**2)))
+f = lambda x: torch.exp(0.5 * torch.sin((torch.pi * x[:, [0]] ** 2) + (torch.pi * x[:, [1]] ** 2)) + 0.5 * torch.sin((torch.pi * x[:, [2]] ** 2) + (torch.pi * x[:, [3]] ** 2)))
 dataset = create_dataset(f, n_var=4, train_num=3200, test_num=800)
 
 
@@ -125,7 +128,7 @@ dataset = create_dataset(f, n_var=4, train_num=3200, test_num=800)
 
 # model.update_grid(dataset["train_input"])
 # plot(model, title="KAN_initialisation", tick=False)
-grid_upds = {200 : 6} #, 300 : 10, 450 : 24}
+grid_upds = {200: 6}  # , 300 : 10, 450 : 24}
 
 results = train(model, dataset, opt="Adam", steps=600, grid_upds=grid_upds, lamb=0.05, lr=0.06)
 

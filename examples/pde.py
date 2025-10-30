@@ -3,15 +3,17 @@ import numpy as np
 import matplotlib.pyplot as plt
 from torch import autograd
 from tqdm import tqdm
-from better_kan import KAN, build_splines_layers, plot
+from better_kan import build_KAN, create_dataset, plot, train
+from better_kan.functions import Splines
 
 dim = 2
 np_i = 21  # number of interior points (along each dimension)
 np_b = 21  # number of boundary points (along each dimension)
 ranges = [-1, 1]
 
+model = build_KAN(Splines, [2, 2, 1], grid_size=5)
 
-model = KAN(build_splines_layers([2, 2, 1], grid_size=5, grid_alpha=1.0, scale_basis=0.25))
+# model = KAN(build_splines_layers([2, 2, 1], grid_size=5, grid_alpha=1.0, scale_basis=0.25))
 
 
 def batch_jacobian(func, x, create_graph=False):
@@ -86,7 +88,7 @@ def train():
         sol = sol_fun(x_i)
         loss = alpha * pde_loss + bc_loss
         if update_grid:
-            model.update_grid()
+            model.update_grid(None)
         l2 = torch.mean((model(x_i) - sol) ** 2)
 
         if n % log == 0:

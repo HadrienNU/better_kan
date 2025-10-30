@@ -3,8 +3,9 @@ import torch.nn as nn
 import numpy as np
 import matplotlib.pyplot as plt
 
-from better_kan import create_dataset, KAN, build_rbf_layers, train, plot, update_plot
 
+from better_kan import build_KAN, create_dataset, plot, train, update_plot
+from better_kan.functions import RBFFunction
 
 # plt.ion()  # turning interactive mode on
 
@@ -23,15 +24,13 @@ train_losses = []
 test_losses = []
 steps = 75
 
+model = build_KAN(RBFFunction, [2, 1, 1], grid_size=grids[0], fast_version=False)
 
-model = KAN(build_rbf_layers([2, 1, 1], grid_size=grids[0], optimize_grid=True))
 model.forward(dataset["test_input"])
 # inserts_axes, act_lines = plot(model, title="during training", tick=False)
 # plt.pause(0.25)  # Allow enough time for plot to draw
 
 for i in range(grids.shape[0]):
-    # if i != 0:
-    #     model = KAN(build_rbf_layers([2, 1, 1], grid_size=grids[i], optimize_grid=False)).initialize_from_another_model(model)
     results = train(model, dataset, opt="LBFGS", steps=steps, update_grid=False, lamb=0.0)
     train_losses += results["train_loss"]
     test_losses += results["test_loss"]

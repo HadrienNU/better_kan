@@ -2,6 +2,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+from numpy.polynomial.hermite import hermgauss
+
 
 from ..utils import assign_parameters
 
@@ -15,28 +17,31 @@ class BasisFunction(nn.Module):
         self,
         in_features,
         out_features,
-        fast_version=False,
     ):
         super(BasisFunction, self).__init__()
         self.in_features = in_features
         self.out_features = out_features
-        weights = torch.zeros(self.out_features, self.n_basis_function, self.in_features)
+        weights = torch.empty(self.out_features, self.n_basis_function, self.in_features)
         self.weights = torch.nn.Parameter(weights)
 
-        self.set_speed_mode(fast_version)
+        self.reset_parameters(init_type="uniform")
 
     # TODO: Allow for more various initialisation of the weights (Box initialisation? Xavier, Kaiming, Sparse,??)
     @torch.no_grad()
-    def initialize(self, init_type="uniform", **init_kwargs):
+    def reset_parameters(self, init_type="uniform", **init_kwargs):
         if init_type == "uniform":
-            weights = torch.zeros(self.out_features, self.n_basis_function, self.in_features)
-            nn.init.uniform_(weights, **init_kwargs)
+            nn.init.uniform_(self.weights, **init_kwargs)
         elif init_type == "noise":
+            # Helpers function that return noise of the same shape
+            # def noise_fct(X):
+            #     return (torch.rand(X.shape[0], self.in_features, self.out_features) - 1 / 2) * init_kwargs["scale"] / self.n_basis_function
+
+            # weights = self.project_on_basis(noise_fct)
             X, w = self.collocations_points()
             noise = (torch.rand(X.shape[0], self.in_features, self.out_features) - 1 / 2) * init_kwargs["scale"] / self.n_basis_function
             weights = self.curve2coeff(X, noise, w)  # Ici prendre des points de collocation plutôt
 
-        assign_parameters(self, "weights", weights)
+            assign_parameters(self, "weights", weights)
 
     @property
     def n_basis_function(self):
@@ -44,6 +49,24 @@ class BasisFunction(nn.Module):
 
     def collocations_points(self):  # Return a number of collocations points along each input dimensions. When there is an input grid, use the grid
         raise NotImplementedError
+
+    def forward(self, x: torch.Tensor):
+        original_shape = x.shape
+        x = x.view(-1, self.in_features)
+        output = F.linear(
+            self.basis(x).reshape(x.size(0), -1),
+            self.weights.view(self.out_features, -1),
+        )
+        return output.view(*original_shape[:-1], self.out_features)
+
+    def activations_eval(self, x: torch.Tensor):
+        """
+        Don't reduce over the input dimension
+        """
+        original_shape = x.shape
+        x = x.view(-1, self.in_features)
+        output = torch.einsum("xbi,obi->xoi", self.basis(x), self.weights)
+        return output.view(*original_shape[:-1], self.out_features, self.in_features)  # Here is the bottleneck of performance
 
     def basis(self, x: torch.Tensor):
         """
@@ -59,6 +82,45 @@ class BasisFunction(nn.Module):
 
         raise NotImplementedError
 
+    def project_on_basis(self, fct, method="l2"):
+        """
+        When fct is a callable function or module; compute the projection of the function on the basis and update the weights
+
+        Args:
+            method (str, "l2", "collocation") : allow to change method for the projection
+                - "l2" use L2 Galerkin projection
+                - "collocation" use least squares projection to a set of collocation points
+
+        Returns;
+            weights resulting from the projection
+        """
+        if method.lower() == "l2":
+            raise NotImplementedError
+        elif method.lower() == "collocation":
+            x, _ = self.collocations_points
+            y = fct(x)
+            # TODO: check assert
+            torch._assert(x.dim() == 2 and x.size(1) == self.in_features, "Input dimension does not match layer size")
+            torch._assert(y.size() == (x.size(0), self.in_features, self.out_features), " Output tensor sizes does not match expectation")
+            A = self.basis(x).permute(2, 0, 1)  # (in_features, batch_size, n_basis_function)
+            B = y.transpose(0, 1)  # (in_features, batch_size, out_features)
+            if A.device == "cpu" or True:
+                solution = torch.linalg.lstsq(A, B).solution  # (in_features, n_basis_function, out_features)
+            else:
+                solution = svd_lstsq(A, B)
+            result = solution.permute(2, 1, 0)  # (out_features, n_basis_function, in_features)
+            torch._assert(
+                result.size()
+                == (
+                    self.out_features,
+                    self.n_basis_function,
+                    self.in_features,
+                ),
+                "result sizes does not match expectation",
+            )
+            return result.contiguous()
+
+    # TODO: Implement the weights
     def curve2coeff(self, x: torch.Tensor, y: torch.Tensor, weights=None):
         """
         Compute the coefficients of the curve that interpolates the given points.
@@ -74,7 +136,6 @@ class BasisFunction(nn.Module):
         torch._assert(y.size() == (x.size(0), self.in_features, self.out_features), " Output tensor sizes does not match expectation")
         A = self.basis(x).permute(2, 0, 1)  # (in_features, batch_size, n_basis_function)
         B = y.transpose(0, 1)  # (in_features, batch_size, out_features)
-
         if A.device == "cpu" or True:
             solution = torch.linalg.lstsq(A, B).solution  # (in_features, n_basis_function, out_features)
         else:
@@ -91,19 +152,6 @@ class BasisFunction(nn.Module):
         )
         return result.contiguous()
 
-    def forward(self, x: torch.Tensor):
-        original_shape = x.shape
-        x = x.view(-1, self.in_features)
-        if self.fast_mode:
-            output = F.linear(
-                self.basis(x).reshape(x.size(0), -1),
-                self.weights.view(self.out_features, -1),
-            )
-            return output.view(*original_shape[:-1], self.out_features)
-        else:
-            output = torch.einsum("xbi,obi->xoi", self.basis(x), self.weights)
-            return output.view(*original_shape[:-1], self.out_features, self.in_features)  # Here is the bottleneck of performance
-
     def regularization_loss(self, regularize_activation=1.0, regularize_entropy=1.0):
         """
         Compute the regularization loss.
@@ -116,64 +164,15 @@ class BasisFunction(nn.Module):
         else:
             return torch.tensor(0.0)
 
-    def set_from_another_layer(self, parent, in_id=None, out_id=None):
-        """
-        set a smaller KANLayer from a larger KANLayer (used for pruning)
-
-
-        Args:
-        -----
-            parent : kan_layer
-                An input KANLayer to be set as a subset of this one
-            in_id : list
-                id of selected input neurons
-            out_id : list
-                id of selected output neurons
-
-        Returns:
-        --------
-            newlayer : KANLayer
-
-        Example
-        -------
-        >>> kanlayer_large = KANLayer(in_dim=10, out_dim=10, num=5, k=3)
-        >>> kanlayer_small = kanlayer_small.set_from_another_layer(kanlayer_large,[0,9],[1,2,3])
-        >>> kanlayer_small.in_dim, kanlayer_small.out_dim
-        (2, 3)
-        """
-
-        raise NotImplementedError
-
-    def set_speed_mode(self, fast=True):
-        self.fast_mode = fast
-
-    def get_subset(self, in_id, out_id):
-        """
-        get a smaller basis from a larger basis (used for pruning)
-
-        Args:
-        -----
-            in_id : list
-                id of selected input neurons
-            out_id : list
-                id of selected output neurons
-        """
-
-        # First obtain deep copy
-
-        # Then change evything that is needed
-
-        newbasis = self.__class__(
-            len(in_id),
-            len(out_id),
-            fast_version=self.fast_mode,
-        )
-        newbasis.set_from_another_basis(self, in_id, out_id)
-        return newbasis
-
-    def get_subset(self, in_id=None, out_id=None):
+    def get_inout_subset(self, in_id=None, out_id=None):
         """
         When pruning, a only subset of input and output are used
+        Args:
+        -----
+            in_id : list
+                id of selected input neurons
+            out_id : list
+                id of selected output neurons
         """
 
         if in_id is None:
@@ -181,7 +180,10 @@ class BasisFunction(nn.Module):
         if out_id is None:
             out_id = torch.arange(self.out_features)
 
-        raise NotImplementedError
+        self.in_features = len(in_id)
+        self.out_features = len(out_id)
+        assign_parameters(self, "weights", self.weights[out_id, :, :][:, :, in_id])
+        return self
 
 
 class GridBasedFunction(BasisFunction):
@@ -189,8 +191,8 @@ class GridBasedFunction(BasisFunction):
     Base class for function based on a grid
     """
 
-    def __init__(self, in_features, out_features, grid, fast_version=False):
-        super().__init__(in_features, out_features, fast_version)
+    def __init__(self, in_features, out_features, grid):
+        super().__init__(in_features, out_features)
         self.grid = grid
         self.grid.in_features = in_features
         self.grid._initialize()
@@ -198,11 +200,10 @@ class GridBasedFunction(BasisFunction):
     def collocations_points(self):
         return self.grid.collocations_points()
 
+    # TODO: Avoir update grid qui return une nouvelle grille et le curve2coeff etre vraiment la projection d'une base sur l'autre
     def update_grid(self, x, grid_size=-1, margin=0.01):
-        torch._assert(x.dim() == 2 and x.size(1) == self.in_features, "Input dimension does not match layer size")
-
         # Save current value of the basis at collocations points before updating the grid
-        x_in = self.collocations_points()
+        x_in, w = self.collocations_points()
         basis_values = self.basis(x_in)
         unreduced_basis_output = torch.sum(basis_values.unsqueeze(1) * self.weights.unsqueeze(0), dim=2)  # (batch, out, in)
         unreduced_basis_output = unreduced_basis_output.transpose(1, 2)  # (batch, in, out)
@@ -212,7 +213,7 @@ class GridBasedFunction(BasisFunction):
         # Update weight to compensate for the grid change
         assign_parameters(self, "weights", self.curve2coeff(x_in, unreduced_basis_output))
 
-    def get_subset(self, in_id=None, out_id=None):
+    def get_inout_subset(self, in_id=None, out_id=None):
         """
         When pruning, a only subset of input and output are used
         """
@@ -222,9 +223,9 @@ class GridBasedFunction(BasisFunction):
         if out_id is None:
             out_id = torch.arange(self.out_features)
 
-        super().getsubset(in_id, out_id)
+        super().get_inout_subset(in_id, out_id)
         # Then reduce the size of the new grid
-        self.grid.getsubset(in_id, out_id)
+        self.grid.get_inout_subset(in_id)
 
         return self
 
@@ -241,7 +242,7 @@ class ActivationFunction(BasisFunction):
         base_activation=nn.SiLU,
     ):
 
-        super().__init__(in_features, out_features, fast_version=True)
+        super().__init__(in_features, out_features)
         self.base_activation = base_activation()
 
     @property
@@ -249,7 +250,10 @@ class ActivationFunction(BasisFunction):
         return 1
 
     def collocations_points(self):  # Return a number of collocations points along each input dimensions. When there is an input grid, use the grid
-        raise NotImplementedError
+        nodes, weights = hermgauss(5)
+        nodes_torch = torch.from_numpy(nodes).to(dtype=self.weights.dtype, device=self.weights.device)
+        weights_torch = torch.from_numpy(weights).to(dtype=self.weights.dtype, device=self.weights.device)
+        return nodes_torch.unsqueeze(1).expand(-1, self.in_features), weights_torch.unsqueeze(1).expand(-1, self.in_features)
 
     def basis(self, x):
         return self.base_activation(x).unsqueeze(1)
@@ -257,11 +261,11 @@ class ActivationFunction(BasisFunction):
     def forward(self, x: torch.Tensor):
         original_shape = x.shape
         x = x.view(-1, self.in_features)
-        if self.fast_mode:
-            output = F.linear(self.base_activation(x), self.weights.squeeze(1))
-            return output.view(*original_shape[:-1], self.out_features)
-        else:
-            output = self.base_activation(x).unsqueeze(1) * self.weights.squeeze(1).unsqueeze(0)
-            return output.view(*original_shape[:-1], self.out_features, self.in_features)  # Here is the bottleneck of performance
+        output = F.linear(self.base_activation(x), self.weights.squeeze(1))
+        return output.view(*original_shape[:-1], self.out_features)
 
-        return
+    def activations_eval(self, x):
+        original_shape = x.shape
+        x = x.view(-1, self.in_features)
+        output = self.base_activation(x).unsqueeze(1) * self.weights.squeeze(1).unsqueeze(0)
+        return output.view(*original_shape[:-1], self.out_features, self.in_features)  # Here is the bottleneck of performance

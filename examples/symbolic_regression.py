@@ -3,10 +3,12 @@ import torch.nn as nn
 import numpy as np
 import matplotlib.pyplot as plt
 
-from better_kan import KAN, build_splines_layers, create_dataset, plot, train
-from better_kan.symbolic import Symbolic_KANLayer
 
-model = KAN(build_splines_layers([2, 5, 1], grid_size=5, fast_version=False))
+from better_kan import build_KAN, create_dataset, plot, train
+from better_kan.functions import Splines, SymbolicFunction
+
+
+model = build_KAN(Splines, [2, 5, 1], grid_size=5, fast_version=False)
 
 
 f = lambda x: torch.exp(torch.sin(torch.pi * x[:, [0]]) + x[:, [1]] ** 2)
@@ -34,7 +36,7 @@ plt.yscale("log")
 plot(model, title="KAN_after training", tick=False)
 
 
-new_model = model.prune(mode="auto")
+new_model = model.prune(mode="highest", active_neurons_id=[1])
 
 new_model(dataset["test_input"])
 
@@ -42,11 +44,10 @@ new_model(dataset["test_input"])
 plot(new_model, title="KAN after pruning", tick=False)
 
 
-# Replace both layer with symbolic expression
-symbolic_layers = [Symbolic_KANLayer(la.in_features, la.out_features) for la in new_model.layers]
-symbolic_layers[1].set_from_another_layer(new_model.layers[1], [["exp"]])
-symbolic_layers[0].set_from_another_layer(new_model.layers[0], [["auto", "auto"]])
-symbolic_kan = KAN(symbolic_layers)
+symbolic_kan = build_KAN(SymbolicFunction, [2, new_model.layers[0].out_features, 1])
+# Replace both layers with symbolic expression
+symbolic_kan.layers[1].functions[0].project_on_basis(new_model.layers[1].functions[0], [["exp"]])
+symbolic_kan.layers[0].functions[0].project_on_basis(new_model.layers[0].functions[0], [["auto", "auto"]])
 symbolic_kan.forward(dataset["test_input"])
 plot(symbolic_kan, title="Symbolic KAN", tick=False)
 plt.show()

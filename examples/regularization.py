@@ -5,8 +5,9 @@ import matplotlib.pyplot as plt
 
 from matplotlib import ticker
 
-from better_kan import KAN, build_chebyshev_layers, create_dataset, train
 
+from better_kan import build_KAN, create_dataset, plot, train
+from better_kan.functions import ChebyshevPolynomial
 
 f = lambda x: torch.exp(torch.sin(torch.pi * x[:, [0]]) + x[:, [1]] ** 2)
 dataset = create_dataset(f, n_var=2)
@@ -19,8 +20,7 @@ results = np.zeros((10, 10, 3))
 
 for n, l1 in enumerate(l1_mesh):
     for m, entropy in enumerate(entropy_mesh):
-
-        model = KAN(build_chebyshev_layers([2, 5, 5, 1], grid_size=30))
+        model = build_KAN(ChebyshevPolynomial, [2, 5, 5, 1], poly_order=30, fast_version=False)
 
         res = train(model, dataset, opt="LBFGS", steps=100, update_grid=True, lamb=1.0, lamb_entropy=entropy, lamb_l1=l1)
 

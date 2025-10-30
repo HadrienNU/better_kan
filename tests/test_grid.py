@@ -70,6 +70,19 @@ def test_grid_update():
     assert torch.abs(grid.grid.mean() - input_data.mean()) < 2.0
 
 
+def test_grid_update_no_data():
+    """
+    Tests the `update` method, which adjusts the grid based on input data.
+    """
+    in_features = 2
+    grid = Grid(in_features=in_features, size=10, order=1)
+    # Update the grid based on the new data
+    grid.update(None, grid_size=15, margin=0.1)
+    # Check that the grid size was successfully updated
+    assert grid.grid_size == 15
+    assert grid.grid.shape == (15 + 2 * grid.order, in_features)
+
+
 def test_grid_trigger_update():
     """
     Tests the `trigger_grid_update` method that decides when to update the grid.

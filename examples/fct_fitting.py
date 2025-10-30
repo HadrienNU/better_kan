@@ -3,7 +3,8 @@ import torch.nn as nn
 import numpy as np
 import matplotlib.pyplot as plt
 
-from better_kan import create_dataset, KAN, build_splines_layers, train, plot
+from better_kan import build_KAN, create_dataset, train, plot
+from better_kan.functions import Splines
 
 
 f = lambda x: torch.exp(torch.sin(torch.pi * x[:, [0]]) + x[:, [1]] ** 2)
@@ -17,12 +18,9 @@ train_losses = []
 test_losses = []
 steps = 75
 k = 3
-
+model = build_KAN(Splines, [2, 1, 1], grid_size=grids[0], k=k)
 for i in range(grids.shape[0]):
-    if i == 0:
-        model = KAN(build_splines_layers([2, 1, 1], grid_size=grids[i], spline_order=k))
-    if i != 0:
-        model = KAN(build_splines_layers([2, 1, 1], grid_size=grids[i], spline_order=k)).initialize_from_another_model(model)
+    model.update_grid(None, grid_size=grids[i])
     results = train(model, dataset, opt="LBFGS", steps=steps, stop_grid_update_step=50, update_grid=None, lamb=0.0)
     train_losses += results["train_loss"]
     test_losses += results["test_loss"]

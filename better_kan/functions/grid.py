@@ -59,35 +59,60 @@ class Grid(nn.Module):
             n = self.order + 1
 
         nodes, weights = np.polynomial.legendre.leggauss(n)
-        nodes_torch = torch.from_numpy(nodes).unsqueeze(1).unsqueeze(2).repeat(-1, self.grid_size - 1 + self.order, self.in_features)
-        weights_torch = torch.from_numpy(weights).unsqueeze(1).unsqueeze(2).repeat(-1, self.grid_size - 1, self.in_features)
+        nodes_torch = torch.from_numpy(nodes).to(dtype=self.grid.dtype, device=self.grid.device)
+        weights_torch = torch.from_numpy(weights).to(dtype=self.grid.dtype, device=self.grid.device)
 
-        raise NotImplementedError
+        nodes_torch = nodes_torch.unsqueeze(1).unsqueeze(2).repeat(1, self.grid_size - 1 + 2 * self.order, self.grid.shape[-1])
+        weights_torch = weights_torch.unsqueeze(1).unsqueeze(2).repeat(1, self.grid_size - 1 + 2 * self.order, self.grid.shape[-1])
 
-    def update(self, x, grid_size=-1, margin=0.01):
-        batch = x.size(0)
-        # sort each channel individually to collect data distribution
-        x_sorted = torch.sort(x, dim=0)[0]
-        if grid_size > 0:
-            self.grid_size = grid_size
-        grid_adaptive = x_sorted[torch.linspace(0, batch - 1, self.grid_size, dtype=torch.int64, device=x.device)]
+        # Change of interval
+        dh = 0.5 * (self.grid[1:,] - self.grid[:-1, :]).unsqueeze(0)
+        center = 0.5 * (self.grid[1:,] + self.grid[:-1, :]).unsqueeze(0)
+        print()
+        return (center + dh * nodes_torch).view(-1, self.grid.shape[-1]), (dh * weights_torch).view(-1, self.grid.shape[-1])
 
-        uniform_step = (x_sorted[-1] - x_sorted[0] + 2 * margin) / (self.grid_size - 1)
-        grid_uniform = torch.arange(self.grid_size, dtype=x.dtype, device=x.device).unsqueeze(1) * uniform_step + x_sorted[0] - margin
+    # TODO: take care of parametrization
+    def update(self, x=None, grid_size=-1, margin=0.01):
+        if x is None:  # If no data are provided simply use the previous grid as basis for interpolating to the new size
+            if grid_size > 0:
+                x_sorted = torch.sort(self.grid, dim=0)[0]
+                points = torch.linspace(0, self.grid.size(0) - 1.0, grid_size + 2 * self.order, dtype=self.grid.dtype, device=self.grid.device)
+                indices = torch.floor(points)
+                floating_part = (points - indices).unsqueeze(1)
+                indices = indices.to(torch.int64)
+                # The next two line deal with the special case of the end point
+                floating_part[indices == self.grid.size(0) - 1, :] += 1.0
+                indices[indices == self.grid.size(0) - 1] -= 1
+                grid = x_sorted[indices] * (1.0 - floating_part) + x_sorted[indices + 1] * floating_part
 
-        grid = self.grid_alpha * grid_uniform + (1 - self.grid_alpha) * grid_adaptive
+                self.grid_size = grid_size
+        else:
+            torch._assert(x.dim() == 2 and x.size(1) == self.grid.size(1), "Input dimension does not match layer size")
 
-        self.grid_range = torch.stack((x_sorted[-1], x_sorted[0]), dim=1)
+            batch = x.size(0)
+            # sort each channel individually to collect data distribution
+            x_sorted = torch.sort(x, dim=0)[0]
+            if grid_size > 0:
+                self.grid_size = grid_size
+            grid_adaptive = x_sorted[torch.linspace(0, batch - 1, self.grid_size, dtype=torch.int64, device=x.device)]
 
-        if self.order > 0:
-            grid = torch.concatenate(
-                [
-                    grid[:1] - uniform_step * torch.arange(self.order, 0, -1, device=x.device).unsqueeze(1),
-                    grid,
-                    grid[-1:] + uniform_step * torch.arange(1, self.order + 1, device=x.device).unsqueeze(1),
-                ],
-                dim=0,
-            )
+            uniform_step = (x_sorted[-1] - x_sorted[0] + 2 * margin) / (self.grid_size - 1)
+            grid_uniform = torch.arange(self.grid_size, dtype=x.dtype, device=x.device).unsqueeze(1) * uniform_step + x_sorted[0] - margin
+
+            grid = self.grid_alpha * grid_uniform + (1 - self.grid_alpha) * grid_adaptive
+
+            self.grid_range = torch.stack((x_sorted[-1], x_sorted[0]), dim=1)
+
+            if self.order > 0:
+                grid = torch.concatenate(
+                    [
+                        grid[:1] - uniform_step * torch.arange(self.order, 0, -1, device=x.device).unsqueeze(1),
+                        grid,
+                        grid[-1:] + uniform_step * torch.arange(1, self.order + 1, device=x.device).unsqueeze(1),
+                    ],
+                    dim=0,
+                )
+        # TODO: Return a new grid class with the new grid
         # self.grid = grid  # De toute façon ce n'est pas un paramètre
         assign_parameters(self, "grid", grid)
 
@@ -105,27 +130,14 @@ class Grid(nn.Module):
         return torch.any(out_points > self.auto_grid_allow_outside_points) or torch.any(nb_empty_bins > self.auto_grid_allow_empty_bins)  # If too many points
 
     @torch.no_grad()  # TODO: Check the code
-    def get_grid_subset(self, in_id=None):
+    def get_inout_subset(self, in_id=None):
         """
         Get grid from a parent and compute grid and weights
         """
         if in_id is None:
-            in_id = torch.arange(self.in_features)
-
-        old_grid = self.grid
-
-        x_sorted = torch.sort(old_grid, dim=0)[0]
-        points = torch.linspace(0, old_grid.size(0) - 1.0, self.grid.size(0), dtype=x_sorted.dtype, device=self.grid.device)
-        indices = torch.floor(points)
-        floating_part = (points - indices).unsqueeze(1)
-        indices = indices.to(torch.int64)
-        # The next two line deal with the special case of the end point
-        floating_part[indices == old_grid.size(0) - 1, :] += 1.0
-        indices[indices == old_grid.size(0) - 1] -= 1
-        new_grid = x_sorted[indices] * (1.0 - floating_part) + x_sorted[indices + 1] * floating_part
-
-        self.grid = new_grid[:, in_id]
-
+            in_id = torch.arange(self.grid.shape[-1])
+        self.grid = self.grid[:, in_id]
+        self.grid_range = self.grid_range[in_id, :]
         return self
 
 

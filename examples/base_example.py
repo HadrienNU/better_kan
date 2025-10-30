@@ -3,17 +3,18 @@ import torch.nn as nn
 import numpy as np
 import matplotlib.pyplot as plt
 
-from better_kan import KAN, build_splines_layers, build_rbf_layers, create_dataset, plot, train
+from better_kan import build_KAN, create_dataset, plot, train
+from better_kan.functions import Splines
 
-
-model = KAN(build_rbf_layers([2, 5, 1], grid_size=5, fast_version=False, rbf_kernel="gaussian"))
+model = build_KAN(Splines, [2, 5, 1], grid_size=5, fast_version=False)
 
 
 f = lambda x: torch.exp(torch.sin(torch.pi * x[:, [0]]) + x[:, [1]] ** 2)
 dataset = create_dataset(f, n_var=2)
 print(dataset["train_input"].shape, dataset["train_label"].shape)
 
-print(model.layers[0].weights)
+print(model)
+model(dataset["train_input"])
 model.update_grid(dataset["train_input"])
 plot(model, title="KAN_initialisation", tick=False)
 
@@ -34,7 +35,7 @@ plt.yscale("log")
 plot(model, title="KAN_after training", tick=False)
 
 
-new_model = model.prune(mode="auto")
+new_model = model.prune(mode="highest", active_neurons_id=[1])
 
 new_model(dataset["train_input"])
 

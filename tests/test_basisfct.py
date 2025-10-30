@@ -58,24 +58,21 @@ class TestAllFunctions:
         assert isinstance(fct, torch.nn.Module)
         expected_weights_shape = (fct.out_features, fct.n_basis_function, fct.in_features)
         assert fct.weights.shape == expected_weights_shape
-        fct.initialize(type_init, **init_kwargs)
+        fct.reset_parameters(type_init, **init_kwargs)
         assert fct.weights.shape == expected_weights_shape
 
-    def test_forward_slow_mode(self, fct, input_data_2d):
-        """Generic Test: Forward pass in slow mode produces correct shape."""
-        fct.set_speed_mode(fast=False)
-        output = fct(input_data_2d)
+    def test_activations(self, fct, input_data_2d):
+        """Generic Test: Activations produces correct shape."""
+        output = fct.activations_eval(input_data_2d)
         assert output.shape == (input_data_2d.shape[0], fct.out_features, input_data_2d.shape[-1])
 
-    def test_forward_fast_mode(self, fct, input_data_2d):
-        """Generic Test: Forward pass in fast mode produces correct shape."""
-        fct.set_speed_mode(fast=True)
+    def test_forward(self, fct, input_data_2d):
+        """Generic Test: Forward pass produces correct shape."""
         output = fct(input_data_2d)
         assert output.shape == (input_data_2d.shape[0], fct.out_features)
 
-    def test_forward_high_dims_fast_mode(self, fct, input_data_4d):
+    def test_forward_high_dims(self, fct, input_data_4d):
         """Generic Test: Fast forward pass handles high-dimensional input."""
-        fct.set_speed_mode(fast=True)
         output = fct(input_data_4d)
         expected_shape = input_data_4d.shape[:-1] + (fct.out_features,)
         assert output.shape == expected_shape
@@ -86,3 +83,11 @@ class TestAllFunctions:
         coeffs = fct.curve2coeff(input_data_2d, y)
         expected_shape = (fct.out_features, fct.n_basis_function, fct.in_features)
         assert coeffs.shape == expected_shape
+
+    def test_update_and_project(self, fct, input_data_2d):
+        if hasattr(fct, "update_grid"):
+            pytest.skip("Not implemented")
+            pass
+            # TODO  write the test and check that the residuals at some collocations points are low
+        else:
+            pytest.skip("Not applicable")

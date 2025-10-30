@@ -12,6 +12,18 @@ from collections.abc import Sequence
 from sympy.combinatorics import Permutation, PermutationGroup
 
 
+def parametrize_kan_equivariance(model, equiv_list):
+    """
+    Set the prametrization for the entire network
+    """
+
+
+def parametrize_layer_equivariance(layer, equiv):
+    """
+    Take a KANLayer and parametrize what is needed.
+    """
+
+
 def equivariant_permutations_inputs(inputs):
     """
     Return the generators of permutation group for a given input

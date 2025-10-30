@@ -330,14 +330,14 @@ def plot(kan, beta=3, norm_alpha=False, scale=1.0, tick=False, in_vars=None, out
     nx.draw_networkx_nodes(G, pos, ax=ax)
     # Plot in and out vars if available
     offset = 0  # 0.15  # Find offset as size of a node ??
-    mask_in = kan.layers[0].mask.cpu().detach().numpy()
+    # mask_in = kan.layers[0].mask.cpu().detach().numpy()
     if in_vars is not None:
         name_attrs = {(0, m): in_vars[m] for m in range(kan.width[0])}
         nx.draw_networkx_labels(G, {n: (x, y - offset) for n, (x, y) in pos.items()}, labels=name_attrs, font_color="red", ax=ax)
-    elif mask_in.shape[0] != mask_in.shape[1]:  # If there is some permutation invariants inputs, lets labels them appropeially
-        groups = np.argmax(mask_in, axis=0)  # Group to which belong each input
-        name_attrs = {(0, m): groups[m] for m in range(kan.width[0])}
-        nx.draw_networkx_labels(G, {n: (x, y - offset) for n, (x, y) in pos.items()}, labels=name_attrs, font_color="yellow", ax=ax)
+    # elif mask_in.shape[0] != mask_in.shape[1]:  # If there is some permutation invariants inputs, lets labels them appropeially
+    #     groups = np.argmax(mask_in, axis=0)  # Group to which belong each input
+    #     name_attrs = {(0, m): groups[m] for m in range(kan.width[0])}
+    #     nx.draw_networkx_labels(G, {n: (x, y - offset) for n, (x, y) in pos.items()}, labels=name_attrs, font_color="yellow", ax=ax)
     if out_vars is not None:
         name_attrs = {}
         for m in range(kan.width[-1]):
@@ -354,31 +354,31 @@ def plot(kan, beta=3, norm_alpha=False, scale=1.0, tick=False, in_vars=None, out
     for la in range(depth):
         inserts_axes.append([[None for _ in range(kan.width[la + 1])] for _ in range(kan.width[la])])
         act_lines.append([[None for _ in range(kan.width[la + 1])] for _ in range(kan.width[la])])
-        if hasattr(kan.layers[la], "l1_norm"):
+        if hasattr(kan.layers[la], "l1_norm"):  # TODO allow for plot even in fast mode
             alpha = score2alpha(kan.layers[la].l1_norm.cpu().detach().numpy())
             alpha = alpha / (alpha.max() if norm_alpha else 1.0)
+
             # Take for ranges, either the extremal of the centers or the min/max of the data
             ranges = [torch.linspace(kan.layers[la].min_vals[d], kan.layers[la].max_vals[d], 150) for d in range(kan.width[la])]
             x_in = torch.stack(ranges, dim=1)
             acts_vals = kan.layers[la].activations_eval(x_in).cpu().detach().numpy()
             x_ranges = x_in.cpu().detach().numpy()
             # Take mask into account
-            mask_la = kan.layers[la].mask.cpu().detach().numpy()  # L'idée c'est d'avoir mask [i][j] = True/False pour savoir si on plot
-            mask = np.zeros(mask_la.shape[1], dtype=bool)
-            mask[np.argmax(mask_la, axis=1)] = True  # Only plot first graph for each group
+            # mask_la = kan.layers[la].mask.cpu().detach().numpy()  # L'idée c'est d'avoir mask [i][j] = True/False pour savoir si on plot
+            # mask = np.zeros(mask_la.shape[1], dtype=bool)
+            # mask[np.argmax(mask_la, axis=1)] = True  # Only plot first graph for each group
 
             for i in range(kan.width[la]):
                 for j in range(kan.width[la + 1]):
                     u, v = (la, i), (la + 1, j)
                     nx.draw_networkx_edges(G, pos, edgelist=[(u, v)], alpha=alpha[j, i], ax=ax)
-                    if mask[i]:
+                    if True:  # mask[i]:
                         # Compute central position of the edge
                         x = (pos[u][0] + pos[v][0]) / 2
                         y = (pos[u][1] + pos[v][1]) / 2
 
                         width = scale * 0.1
                         height = scale * 0.1
-
                         # Créer un axe en insert
                         inset_ax = ax.inset_axes([x - 0.5 * width, y - 0.5 * height, width, height], transform=ax.transData, box_aspect=1.0)
                         if tick is False:
