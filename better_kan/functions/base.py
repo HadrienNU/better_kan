@@ -201,14 +201,18 @@ class GridBasedFunction(BasisFunction):
         return self.grid.collocations_points()
 
     # TODO: Avoir update grid qui return une nouvelle grille et le curve2coeff etre vraiment la projection d'une base sur l'autre
+    @torch.no_grad()
     def update_grid(self, x, grid_size=-1, margin=0.01):
         # Save current value of the basis at collocations points before updating the grid
-        x_in, w = self.collocations_points()
+        if x is not None:
+            x_in = x
+        else:
+            x_in, w = self.collocations_points()
         basis_values = self.basis(x_in)
         unreduced_basis_output = torch.sum(basis_values.unsqueeze(1) * self.weights.unsqueeze(0), dim=2)  # (batch, out, in)
         unreduced_basis_output = unreduced_basis_output.transpose(1, 2)  # (batch, in, out)
 
-        self.grid.update(x, grid_size=grid_size, margin=margin)
+        new_grid = self.grid.update(x, grid_size=grid_size, margin=margin)
 
         # Update weight to compensate for the grid change
         assign_parameters(self, "weights", self.curve2coeff(x_in, unreduced_basis_output))

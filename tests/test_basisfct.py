@@ -11,9 +11,11 @@ from better_kan.functions import ActivationFunction, ChebyshevPolynomial, Hermit
 fct_test_cases = [
     pytest.param(ActivationFunction, {"in_features": 3, "out_features": 2, "base_activation": nn.ReLU}, id="ActivationFunction"),
     pytest.param(ChebyshevPolynomial, {"in_features": 3, "out_features": 2, "poly_order": 4}, id="ChebyshevPolynomial"),
+    pytest.param(HermitePolynomial, {"in_features": 2, "out_features": 2, "poly_order": 5}, id="HermitePolynomial"),
     pytest.param(Splines, {"in_features": 4, "out_features": 5, "grid": Grid(4, 15, order=3)}, id="Splines"),
     pytest.param(GridReLU, {"in_features": 5, "out_features": 2, "grid": Grid(5, 10, order=2)}, id="GridReLU"),
     pytest.param(RBFFunction, {"in_features": 2, "out_features": 5, "grid": Grid(2, 15, order=0), "rbf_kernel": "gaussian"}, id="RBF"),
+    pytest.param(RBFFunction, {"in_features": 5, "out_features": 2, "grid": Grid(5, 10, order=0), "rbf_kernel": "inverse quadratic"}, id="RBF"),
 ]
 
 init_testcase = [

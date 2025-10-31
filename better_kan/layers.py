@@ -33,7 +33,9 @@ class KANLayer(nn.Module):
         if bias is not None:
             self.bias = torch.nn.Parameter(bias * torch.ones(out_features))
         else:
-            self.bias = torch.zeros(out_features)
+            self.register_buffer("bias", torch.zeros(out_features))
+
+        self.register_buffer("l1_norm", torch.zeros(out_features, in_features))
 
         # Run some check on functions, assert that in_features and out_features are all coherent
 
@@ -69,7 +71,7 @@ class KANLayer(nn.Module):
             self.max_vals = torch.max(x, dim=0).values
             # Somes statistics for regularisation and plot
             out_acts = self.activations_eval(x)
-            self.l1_norm = torch.mean(torch.abs(out_acts), dim=0) / (self.max_vals - self.min_vals)  # out_dim x in_dim
+            self.l1_norm = torch.mean(torch.abs(out_acts), dim=0) / (self.max_vals - self.min_vals)  # out_dim x in_dim # TODO: To have deepcopy I need to not store the l1_norm without detaching it
             if self.pooling_op == "sum":
                 output = torch.sum(out_acts, dim=2)
             elif self.pooling_op == "prod":
@@ -99,8 +101,8 @@ class KANLayer(nn.Module):
         """
         Compute the regularization loss.
         """
-        if hasattr(self, "l1_norm"):
-            regularization_loss_activation = self.l1_norm.sum()
+        regularization_loss_activation = self.l1_norm.sum()
+        if regularization_loss_activation > 0.0:  # To avoid divide by zero
             p = self.l1_norm / regularization_loss_activation
             regularization_loss_entropy = -torch.sum(p * torch.log(p + 1e-6))  # Regularization to avoid 0 value
             return regularize_activation * regularization_loss_activation + regularize_entropy * regularization_loss_entropy
@@ -152,8 +154,7 @@ class KANLayer(nn.Module):
     def set_speed_mode(self, fast=True):  # TODO: set reduction to True in functions
         if fast:
             self.fast_mode = True
-            if hasattr(self, "l1_norm"):
-                del self.l1_norm
+            self.l1_norm = torch.zeros(self.out_features, self.in_features)
             if self.pooling_op != "sum":
                 raise ValueError(f"Fast mode is incompatible with pooling operation {self.pooling_op}")
         else:

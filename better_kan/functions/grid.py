@@ -24,7 +24,7 @@ class DummyGrid:
 
 
 class Grid(nn.Module):
-    def __init__(self, in_features, size, order=0, grid_range=(-1, 1), grid_alpha=0.02, auto_grid_allow_outside_points=0.1, auto_grid_allow_empty_bins=1):
+    def __init__(self, in_features, size, order=0, grid_range=(-1, 1), grid_alpha=0.02):
         super().__init__()
 
         self.grid_size = size  # Number of point in the grid
@@ -33,9 +33,6 @@ class Grid(nn.Module):
         self.grid_range[:, 0] = grid_range[0]
         self.grid_range[:, 1] = grid_range[1]
         self.grid_alpha = grid_alpha
-
-        self.auto_grid_allow_outside_points = auto_grid_allow_outside_points
-        self.auto_grid_allow_empty_bins = auto_grid_allow_empty_bins
 
         self._initialize()
 
@@ -68,13 +65,14 @@ class Grid(nn.Module):
         # Change of interval
         dh = 0.5 * (self.grid[1:,] - self.grid[:-1, :]).unsqueeze(0)
         center = 0.5 * (self.grid[1:,] + self.grid[:-1, :]).unsqueeze(0)
-        print()
         return (center + dh * nodes_torch).view(-1, self.grid.shape[-1]), (dh * weights_torch).view(-1, self.grid.shape[-1])
 
     # TODO: take care of parametrization
+    @torch.no_grad()
     def update(self, x=None, grid_size=-1, margin=0.01):
         if x is None:  # If no data are provided simply use the previous grid as basis for interpolating to the new size
             if grid_size > 0:
+
                 x_sorted = torch.sort(self.grid, dim=0)[0]
                 points = torch.linspace(0, self.grid.size(0) - 1.0, grid_size + 2 * self.order, dtype=self.grid.dtype, device=self.grid.device)
                 indices = torch.floor(points)
@@ -84,8 +82,9 @@ class Grid(nn.Module):
                 floating_part[indices == self.grid.size(0) - 1, :] += 1.0
                 indices[indices == self.grid.size(0) - 1] -= 1
                 grid = x_sorted[indices] * (1.0 - floating_part) + x_sorted[indices + 1] * floating_part
-
                 self.grid_size = grid_size
+            else:
+                grid = self.grid
         else:
             torch._assert(x.dim() == 2 and x.size(1) == self.grid.size(1), "Input dimension does not match layer size")
 
@@ -112,12 +111,16 @@ class Grid(nn.Module):
                     ],
                     dim=0,
                 )
-        # TODO: Return a new grid class with the new grid
-        # self.grid = grid  # De toute façon ce n'est pas un paramètre
-        assign_parameters(self, "grid", grid)
+        # TODO: Return a new grid class with the new grid such that projection on the new grid can happens easily
+        self.grid = grid
+
+        # new_grid_cls = type(self)(self.grid_range.shape[0], self.grid_size, order=self.order, grid_alpha=self.grid_alpha)
+        # new_grid_cls.grid_range = self.grid_range
+        # new_grid_cls.grid = grid
+        # return new_grid_cls
 
     @torch.no_grad()
-    def trigger_grid_update(self, x: torch.Tensor):
+    def trigger_grid_update(self, x: torch.Tensor, auto_grid_allow_outside_points=0.1, auto_grid_allow_empty_bins=1):
         """
         Compute proportion of input that are out of the grid
         That would trigger automatic grid update
@@ -127,7 +130,7 @@ class Grid(nn.Module):
         nb_empty_bins = (in_bins == 0).sum(dim=0)
 
         out_points = torch.logical_or((x >= self.grid[-1, :]), (x < self.grid[0, :])).mean(dim=0, dtype=torch.float64)
-        return torch.any(out_points > self.auto_grid_allow_outside_points) or torch.any(nb_empty_bins > self.auto_grid_allow_empty_bins)  # If too many points
+        return torch.any(out_points > auto_grid_allow_outside_points) or torch.any(nb_empty_bins > auto_grid_allow_empty_bins)  # If too many points outside or too many empty bins
 
     @torch.no_grad()  # TODO: Check the code
     def get_inout_subset(self, in_id=None):
@@ -142,9 +145,6 @@ class Grid(nn.Module):
 
 
 class ParametrizedGrid(Grid):
-
-    def __init__(self, in_features, size, order=0, grid_range=(-1, 1), grid_alpha=0.02):
-        super(ParametrizedGrid, self).__init__(in_features, size, order=order, grid_range=grid_range, grid_alpha=grid_alpha)
 
     def _initialize(self):
         self.s = nn.Parameter(torch.zeros(self.grid_size - 1, self.grid_range.shape[0]))  # Initialize it as a uniform grid

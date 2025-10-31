@@ -49,9 +49,14 @@ xb3 = helper(X[:, 0], Y[:, 0])
 xb4 = helper(X[:, 0], Y[:, -1])
 x_b = torch.cat([xb1, xb2, xb3, xb4], dim=0)
 
-steps = 60
+steps = 250
 alpha = 0.1
 log = 1
+
+results = {}
+results["pde_loss"] = []
+results["bc_loss"] = []
+results["l2"] = []
 
 
 def train():
@@ -82,16 +87,19 @@ def train():
             loss.backward()
             return loss
 
-        update_grid = n % 5 == 0 and n < 50
+        update_grid = n % 100 == 0 and n < 150
 
         optimizer.step(closure)
         sol = sol_fun(x_i)
         loss = alpha * pde_loss + bc_loss
         if update_grid:
-            model.update_grid(None)
+            model.update_grid(x_i)
         l2 = torch.mean((model(x_i) - sol) ** 2)
 
         if n % log == 0:
+            results["pde_loss"].append(pde_loss.cpu().detach().numpy())
+            results["bc_loss"].append(bc_loss.cpu().detach().numpy())
+            results["l2"].append(l2.detach().numpy())
             pbar.set_description("pde loss: %.2e | bc loss: %.2e | l2: %.2e " % (pde_loss.cpu().detach().numpy(), bc_loss.cpu().detach().numpy(), l2.detach().numpy()))
 
 
@@ -99,6 +107,18 @@ train()
 
 
 plot(model, beta=10)
+
+
+fig, axs = plt.subplots()
+
+axs.plot(results["pde_loss"])
+axs.plot(results["bc_loss"])
+axs.plot(results["l2"])
+axs.legend(["pde", "bc", "l2"])
+axs.set_ylabel("RMSE")
+axs.set_xlabel("step")
+axs.set_yscale("log")
+
 
 X_plot = x_mesh.cpu().detach().numpy()
 Y_plot = y_mesh.cpu().detach().numpy()

@@ -8,18 +8,8 @@ def gaussian_rbf(distances):
     return torch.exp(-(distances.pow(2)))
 
 
-def quadratic_rbf(distances):
-    phi = distances.pow(2)
-    return phi
-
-
 def inverse_quadratic_rbf(distances):
     phi = torch.ones_like(distances) / (torch.ones_like(distances) + distances.pow(2))
-    return phi
-
-
-def multiquadric_rbf(distances):
-    phi = (torch.ones_like(distances) + distances.pow(2)).pow(0.5)
     return phi
 
 
@@ -55,9 +45,7 @@ def matern52_rbf(distances):
 
 rbf_kernels = {
     "gaussian": gaussian_rbf,
-    "quadratic": quadratic_rbf,
     "inverse quadratic": inverse_quadratic_rbf,
-    "multiquadric": multiquadric_rbf,
     "inverse multiquadric": inverse_multiquadric_rbf,
     "spline": spline_rbf,
     "poisson one": poisson_one_rbf,

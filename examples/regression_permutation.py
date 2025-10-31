@@ -19,11 +19,11 @@ print(dataset["train_input"].shape, dataset["train_label"].shape)
 model.update_grid(dataset["train_input"])
 
 print(model)
-print(model.layers[0].functions[0].parametrizations.weights.original0.shape)
-print(model.layers[1].functions[0].parametrizations.weights.original0.shape)
+# print(model.layers[0].functions[0].parametrizations.weights.original0.shape)
+# print(model.layers[1].functions[0].parametrizations.weights.original0.shape)
 
 
-results = train(model, dataset, opt="Adam", steps=5000, update_grid=True, stop_grid_update_step=5000, grid_update_freq=50, lamb=0.01, lr=1e-2)
+results = train(model, dataset, opt="Adam", steps=5000, update_grid=True, stop_grid_update_step=5000, grid_update_freq=250, lamb=0.00, lr=1e-2)
 
 plt.figure()
 
@@ -35,7 +35,9 @@ plt.ylabel("RMSE")
 plt.xlabel("step")
 plt.yscale("log")
 
-
+for la in model.layers:
+    la.set_speed_mode(False)
+model(dataset["test_input"])
 plot(model, title="KAN_after training", tick=False, norm_alpha=True)
 
 new_model = model.prune(mode="auto")

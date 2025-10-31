@@ -237,6 +237,11 @@ def train(
 
         if _ % grid_update_freq == 0 and _ < stop_grid_update_step and update_grid:
             kan.update_grid(dataset["train_input"][train_id])
+            # Reset optimizer
+            if opt == "Adam":
+                optimizer = torch.optim.Adam(kan.parameters(), lr=lr)
+            elif opt == "LBFGS":
+                optimizer = torch.optim.LBFGS(kan.parameters(), lr=lr, history_size=10, line_search_fn="strong_wolfe", tolerance_grad=1e-32, tolerance_change=1e-32)
 
         if opt == "LBFGS":
             optimizer.step(closure)
@@ -354,9 +359,12 @@ def plot(kan, beta=3, norm_alpha=False, scale=1.0, tick=False, in_vars=None, out
     for la in range(depth):
         inserts_axes.append([[None for _ in range(kan.width[la + 1])] for _ in range(kan.width[la])])
         act_lines.append([[None for _ in range(kan.width[la + 1])] for _ in range(kan.width[la])])
-        if hasattr(kan.layers[la], "l1_norm"):  # TODO allow for plot even in fast mode
+        if hasattr(kan.layers[la], "l1_norm"):
             alpha = score2alpha(kan.layers[la].l1_norm.cpu().detach().numpy())
-            alpha = alpha / (alpha.max() if norm_alpha else 1.0)
+            if alpha.max() <= 0.0:
+                alpha = np.ones_like(alpha)
+            else:
+                alpha = alpha / (alpha.max() if norm_alpha else 1.0)
 
             # Take for ranges, either the extremal of the centers or the min/max of the data
             ranges = [torch.linspace(kan.layers[la].min_vals[d], kan.layers[la].max_vals[d], 150) for d in range(kan.width[la])]
@@ -448,7 +456,10 @@ def update_plot(kan, inserts_axes, act_lines, beta=3, norm_alpha=False, tick=Fal
     for la in range(depth):
         if hasattr(kan.layers[la], "l1_norm"):
             alpha = score2alpha(kan.layers[la].l1_norm.cpu().detach().numpy())
-            alpha = alpha / (alpha.max() if norm_alpha else 1.0)
+            if alpha.max() <= 0.0:
+                alpha = np.ones_like(alpha)
+            else:
+                alpha = alpha / (alpha.max() if norm_alpha else 1.0)
             # Take for ranges, either the extremal of the centers or the min/max of the data
             ranges = [torch.linspace(kan.layers[la].min_vals[d], kan.layers[la].max_vals[d], 150) for d in range(kan.width[la])]
             x_in = torch.stack(ranges, dim=1)
