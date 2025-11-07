@@ -1,16 +1,15 @@
 import numpy as np
 import torch
-import matplotlib
 import matplotlib.pyplot as plt
-import matplotlib.cm as cmx
 import hashlib
+import itertools
 
 
 def consistent_hash(value):
     return int(hashlib.sha256(str(value).encode()).hexdigest(), 16)
 
 
-def draw_matrix_parametrizations(parametrizations, X, cmap="rainbow", markersize=20):
+def draw_matrix_parametrizations(parametrizations, X, cmap="rainbow", slice_dims=(-2, -1)):
 
     weights = parametrizations.right_inverse(X)
 
@@ -23,31 +22,44 @@ def draw_matrix_parametrizations(parametrizations, X, cmap="rainbow", markersize
         w = w.reshape(-1, 1)
 
     def plot_single_matrix(ax, matrix):
-        ax.imshow(matrix, cmap=cmap, alpha=0.8, vmin=w.min(), vmax=w.max(), origin="lower", aspect="equal")
-        ax.set_xticks(np.arange(matrix.shape[1] - 1) + 0.5, [])
-        ax.set_yticks(np.arange(matrix.shape[0] - 1) + 0.5, [])
-        ax.set_xlim(-0.5, matrix.shape[1] - 0.5)
-        ax.set_ylim(-0.5, matrix.shape[0] - 0.5)
+        ax.imshow(matrix[::-1, :].T, cmap=cmap, alpha=0.8, vmin=w.min(), vmax=w.max(), origin="lower", aspect="equal")
+        ax.set_xticks(np.arange(matrix.shape[0] - 1) + 0.5, [])
+        ax.set_yticks(np.arange(matrix.shape[1] - 1) + 0.5, [])
+        ax.set_xlim(-0.5, matrix.shape[0] - 0.5)
+        ax.set_ylim(-0.5, matrix.shape[1] - 0.5)
         ax.grid(which="major", color="grey", linestyle="-")
         ax.xaxis.set_ticks_position("none")
         ax.yaxis.set_ticks_position("none")
 
     # If w is a high-dimensional tensor, treat it as a collection of matrices
     if len(w.shape) > 2:
-        num_matrices = w.shape[0]
-        # Auto-calculate grid size for subplots
-        ncols = num_matrices
-        nrows = 1
+        # Identify dimensions other than the slice
+        slice_dims = tuple(d if d >= 0 else w.ndim + d for d in slice_dims)  # Support negative dimension
+        all_dims = list(range(w.ndim))
+        iter_dims = [d for d in all_dims if d not in slice_dims]
+
+        # Generate all index combinations for the other dims
+        indices = list(itertools.product(*(range(w.shape[d]) for d in iter_dims)))
+
+        num_matrices = len(indices)
+        ncols = int(np.ceil(np.sqrt(num_matrices)))
+        nrows = int(np.ceil(num_matrices / ncols))
 
         fig, axes = plt.subplots(nrows, ncols, figsize=(ncols * 4, nrows * 4))
         # Flatten axes array for easy iteration
-        axes = axes.flatten()
+        axes = np.atleast_1d(axes).ravel()
 
-        for i in range(num_matrices):
-            sub_matrix = w[i]
+        for i, idx in enumerate(indices):
+            sel = [slice(None)] * w.ndim
+            for d, val in zip(iter_dims, idx):
+                sel[d] = val
+            sub_matrix = w[tuple(sel)]
+
+            # for i in range(num_matrices):
+            #     sub_matrix = w[i]
             ax = axes[i]
             plot_single_matrix(ax, sub_matrix)
-            ax.set_title(f"Submatrix {i}")
+            ax.set_title(f"Submatrix {idx}")
 
         # Hide any unused subplots
         for i in range(num_matrices, len(axes)):

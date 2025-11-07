@@ -55,6 +55,25 @@ class EquivariantGrid(nn.Module):
         return x @ self.basis
 
 
+class EquivariantMatrix(nn.Module):
+    """
+    Equivariant module for shape (out_features,in_features) where the first and last dimension are equivariant and
+    """
+
+    def __init__(self, rep_in, rep_out, dtype=torch.float):
+        super().__init__()
+        self.rep = rep_out * rep_in.T
+        self.register_buffer("basis", torch.tensor(self.rep.equivariant_basis(), dtype=dtype))
+        self.out_features = rep_out.size()
+        self.in_features = rep_in.size()
+
+    def forward(self, X):
+        return (self.basis @ X).reshape(self.out_features, self.in_features)
+
+    def right_inverse(self, x):
+        return self.basis.T @ x.reshape(-1)
+
+
 class EquivariantBasisWeight(nn.Module):
     """
     Equivariant module for shape (out_features,..., in_features) where the first and last dimension are equivariant and
@@ -69,10 +88,10 @@ class EquivariantBasisWeight(nn.Module):
 
     def forward(self, X):
         X = (X @ self.basis.T).reshape(*X.shape[:-1], self.out_features, self.in_features)
-        return X.permute(*torch.arange(1, X.ndim - 1), 0, X.ndim - 1)
+        return X.permute(X.ndim - 2, *torch.arange(0, X.ndim - 2), X.ndim - 1)
 
     def right_inverse(self, x):
-        x = x.permute(x.ndim - 2, *torch.arange(0, x.ndim - 2), x.ndim - 1)  # Set the first dimension to be the
+        x = x.permute(*torch.arange(1, x.ndim - 1), 0, x.ndim - 1)  # Set the first dimension to be the
         return x.flatten(start_dim=x.ndim - 2) @ self.basis
 
 
@@ -84,7 +103,7 @@ if __name__ == "__main__":
     import matplotlib.pyplot as plt
 
     G = S(5)
-    G2 = S(6)
+    G2 = S(5)
 
     rep = V(G)
     rep2 = V(G2)
@@ -98,15 +117,25 @@ if __name__ == "__main__":
     # print("Weights", w.shape)
     # print(vect(w), vect(w).shape)
     # draw_matrix_parametrizations(vect, a)
+    mat = EquivariantMatrix(rep, rep2)
+    print("Basis", mat.basis.shape)
+    # print(mat.basis.reshape(rep.size(), rep2.size(), 2)[:, :, 0])
+    # print(mat.basis.reshape(rep.size(), rep2.size(), 2)[:, :, 1])
+    a = torch.rand(rep2.size(), rep.size())
+    print(a.shape)
+    w = mat.right_inverse(a)
+    print("Weights", w.shape)
+    print(mat(w).shape)
+    draw_matrix_parametrizations(mat, a, slice_dims=(0, -1))
 
     mat = EquivariantBasisWeight(rep, rep2)
     print("Basis", mat.basis.shape)
 
-    a = torch.rand(rep2.size(), 4, rep.size())
+    a = torch.rand(rep2.size(), 3, 2, rep.size())
     print(a.shape)
     w = mat.right_inverse(a)
     print("Weights", w.shape)
-    print(mat(w), mat(w).shape)
-    draw_matrix_parametrizations(mat, a)
+    print(mat(w).shape)
+    draw_matrix_parametrizations(mat, a, slice_dims=(0, -1))
 
     plt.show()
