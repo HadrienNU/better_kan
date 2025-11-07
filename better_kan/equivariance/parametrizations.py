@@ -6,18 +6,43 @@ import torch
 import torch.nn as nn
 
 from representation import *
+from torch.nn.utils.parametrize import register_parametrization, remove_parametrizations
 
 
-def parametrize_kan_equivariance(model, equiv_list):
+def parametrize_kan_equivariance(model, rep_list):
     """
     Set the parametrization for the entire network
     """
+    for i, layer in enumerate(model.layers):
+        parametrize_layer_equivariance(layer, rep_list[i], rep_list[i + 1])
 
 
-def parametrize_layer_equivariance(layer, equiv):
+def unparametrize_kan(model):
+    """
+    Set the parametrization for the entire network
+    """
+    for i, layer in enumerate(model.layers):
+        unparametrize_layer(layer)
+
+
+def parametrize_layer_equivariance(layer, rep_in, rep_out):
     """
     Take a KANLayer and parametrize what is needed.
     """
+    register_parametrization(layer, "bias", EquivariantVector(rep_out, dtype=layer.bias.dtype))
+
+    for fct in layer.functions:
+        register_parametrization(fct, "weight", EquivariantBasisWeight(rep_in, rep_out, dtype=fct.weight.dtype))
+        if hasattr(fct, "grid"):
+            register_parametrization(fct.grid, "grid", EquivariantGrid(rep_in, dtype=fct.grid.grid.dtype))
+
+
+def unparametrize_layer(layer):
+    remove_parametrizations(layer, "bias")
+    for fct in layer.functions:
+        remove_parametrizations(fct, "weight")
+        if hasattr(fct, "grid"):
+            remove_parametrizations(fct.grid, "grid")
 
 
 class EquivariantVector(nn.Module):
