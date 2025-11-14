@@ -4,8 +4,6 @@ Set of modules and function to deal with permutation invariance of the input
 
 import torch
 import torch.nn as nn
-
-from representation import *
 from torch.nn.utils.parametrize import register_parametrization, remove_parametrizations
 
 
@@ -32,7 +30,7 @@ def parametrize_layer_equivariance(layer, rep_in, rep_out):
     register_parametrization(layer, "bias", EquivariantVector(rep_out, dtype=layer.bias.dtype))
 
     for fct in layer.functions:
-        register_parametrization(fct, "weight", EquivariantBasisWeight(rep_in, rep_out, dtype=fct.weight.dtype))
+        register_parametrization(fct, "weights", EquivariantBasisWeight(rep_in, rep_out, dtype=fct.weights.dtype))
         if hasattr(fct, "grid"):
             register_parametrization(fct.grid, "grid", EquivariantGrid(rep_in, dtype=fct.grid.grid.dtype))
 
@@ -40,7 +38,7 @@ def parametrize_layer_equivariance(layer, rep_in, rep_out):
 def unparametrize_layer(layer):
     remove_parametrizations(layer, "bias")
     for fct in layer.functions:
-        remove_parametrizations(fct, "weight")
+        remove_parametrizations(fct, "weights")
         if hasattr(fct, "grid"):
             remove_parametrizations(fct.grid, "grid")
 

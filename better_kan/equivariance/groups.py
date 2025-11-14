@@ -3,7 +3,7 @@
 import numpy as np
 from scipy.linalg import expm
 from scipy.linalg import block_diag
-from utils import consistent_hash
+from .utils import consistent_hash
 
 
 def Kron(Ms):
@@ -45,6 +45,7 @@ class Group(object, metaclass=Named):
     is_orthogonal = None
     is_permutation = None
     d = NotImplemented
+    is_trivial = False
 
     def __init__(self, *args, **kwargs):
         if self.d is NotImplemented:
@@ -153,6 +154,8 @@ def noise2samples(zs, ks, lie_algebra, discrete_generators, seed=0):
 
 
 class Trivial(Group):
+    is_trivial = True
+
     def __init__(self, n):
         self.d = n
         super().__init__(n)

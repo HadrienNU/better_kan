@@ -6,8 +6,8 @@ from scipy.special import binom
 from functools import reduce
 import itertools
 from collections import defaultdict
-from utils import consistent_hash
-from groups import Kron, Kronsum, DirectSum
+from .utils import consistent_hash
+from .groups import Kron, Kronsum, DirectSum
 
 product = lambda c: reduce(lambda a, b: a * b, c)
 
@@ -291,70 +291,6 @@ def orthogonal_complement(proj):
     U, S, VH = np.linalg.svd(proj, full_matrices=True)
     rank = (S > 1e-5).sum()
     return VH[rank:].conj().T
-
-
-def bilinear_weights(out_rep, in_rep):
-    W_rep, W_perm = (in_rep >> out_rep).canonicalize()
-    inv_perm = np.argsort(W_perm)
-    mat_shape = out_rep.size(), in_rep.size()
-    x_rep = in_rep
-    if isinstance(W_rep, ScalarRep):
-        W_multiplicities = {W_rep: 1}
-    else:
-        W_multiplicities = W_rep.reps
-    if isinstance(x_rep, ScalarRep):
-        x_multiplicities = {x_rep: 1}
-    else:
-        x_multiplicities = x_rep.reps
-    x_multiplicities = {rep: n for rep, n in x_multiplicities.items() if rep != Scalar}
-    nelems = lambda nx, rep: min(nx, rep.size())
-    active_dims = sum([W_multiplicities.get(rep, 0) * nelems(n, rep) for rep, n in x_multiplicities.items()])
-    if isinstance(x_rep, ScalarRep):
-        reduced_indices_dict = {x_rep: np.zeros((1, 1))}
-    else:
-        reduced_indices_dict = {rep: ids[np.random.choice(len(ids), nelems(len(ids), rep))].reshape(-1) for rep, ids in x_rep.as_dict(np.arange(x_rep.size())).items()}
-
-    def projection(params, x, device):
-        bshape = x.shape[:-1]
-        x = x.reshape(-1, x.shape[-1])
-        bs = x.shape[0]
-        i = 0
-        Ws = []
-        for rep, W_mult in W_multiplicities.items():
-            if rep not in x_multiplicities:
-                Ws.append(torch.zeros((bs, W_mult * rep.size()), device=device))
-                continue
-            x_mult = x_multiplicities[rep]
-            n = nelems(x_mult, rep)
-            i_end = i + W_mult * n
-            bids = reduced_indices_dict[rep]
-            bilinear_params = params[i:i_end].reshape(W_mult, n)
-            i = i_end
-            bilinear_elems = bilinear_params @ x[..., bids].T.reshape(n, rep.size() * bs)
-            bilinear_elems = bilinear_elems.reshape(W_mult * rep.size(), bs).T
-            Ws.append(bilinear_elems)
-        Ws = torch.cat(Ws, axis=-1)
-        return Ws[..., inv_perm].reshape(*bshape, *mat_shape)
-
-    return active_dims, projection
-
-
-def scale_adjusted_rel_error(t1, t2, g):
-    error = np.sqrt(np.mean(np.abs(t1 - t2) ** 2))
-    tscale = np.sqrt(np.mean(np.abs(t1) ** 2)) + np.sqrt(np.mean(np.abs(t2) ** 2))
-    gscale = np.sqrt(np.mean(np.abs(g - np.eye(g.shape[-1])) ** 2))
-    scale = np.maximum(tscale, gscale)
-    return error / np.maximum(scale, 1e-7)
-
-
-def equivariance_error(W, repin, repout, G):
-    W = W.reshape(repout.size(), repin.size(), -1).transpose((2, 0, 1))[None]
-
-    gs = G.samples(5)
-    ring = np.array([repin.rho(g) for g in gs])[:, None]
-    routg = np.array([repout.rho(g) for g in gs])[:, None]
-    equiv_err = scale_adjusted_rel_error(W @ ring, routg @ W, gs)
-    return equiv_err
 
 
 class SumRep(Rep):
