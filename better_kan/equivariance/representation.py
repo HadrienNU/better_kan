@@ -7,21 +7,34 @@ from functools import reduce
 import itertools
 from collections import defaultdict
 from .utils import consistent_hash
-from .groups import Kron, Kronsum, DirectSum
+from .lazy_operations import LinearOperator, ConcatLazy, LazyPerm, LazyDirectSum, LazyKron, LazyKronsum, I
+from .lazy_operations import lazify, lazy_direct_matmat, densify
 
 product = lambda c: reduce(lambda a, b: a * b, c)
 
 
 class Rep(object):
+    r"""The base Representation class. Representation objects formalize the vector space V
+    on which the group acts, the group representation matrix ρ(g), and the Lie Algebra
+    representation dρ(A) in a single object. Representations act as types for vectors coming
+    from V. These types can be manipulated and transformed with the built in operators
+    ⊕,⊗,dual, as well as incorporating custom representations. Rep objects should
+    be immutable.
+
+    At minimum, new representations need to implement ``rho``, ``__str__``."""
+
     is_permutation = False
 
     def rho(self, M):
+        """Group representation of the matrix M of shape (d,d)"""
         raise NotImplementedError
 
     def drho(self, A):
+        """Lie Algebra representation of the matrix A of shape (d,d)"""
         raise NotImplementedError
 
     def __call__(self, G):
+        """Instantiate (non concrete) representation with a given symmetry group"""
         raise NotImplementedError
 
     def __str__(self):
@@ -53,29 +66,42 @@ class Rep(object):
     def canonicalize(self):
         return self, np.arange(self.size())
 
+    def rho_dense(self, M):
+        """A convenience function which returns rho(M) as a dense matrix."""
+        return densify(self.rho(M))
+
+    def drho_dense(self, A):
+        """A convenience function which returns drho(A) as a dense matrix."""
+        return densify(self.drho(A))
+
     def constraint_matrix(self):
         n = self.size()
         constraints = []
-        constraints.extend([self.rho(h) - np.eye(n) for h in self.G.discrete_generators])
-        constraints.extend([self.drho(A) for A in self.G.lie_algebra])
-        return np.concatenate(constraints, axis=0) if constraints else np.zeros((1, n))
+        constraints.extend([lazify(self.rho(h)) - I(n) for h in self.G.discrete_generators])
+        constraints.extend([lazify(self.drho(A)) for A in self.G.lie_algebra])
+        return ConcatLazy(constraints) if constraints else lazify(np.zeros((1, n)))
 
     solcache = {}
 
     def equivariant_basis(self):
         if self == Scalar:
-            return np.ones((1, 1))
+            return lazify(np.ones((1, 1)))
         canon_rep, perm = self.canonicalize()
         invperm = np.argsort(perm)
         if canon_rep not in self.solcache:
-            C = canon_rep.constraint_matrix()
+            C_lazy = canon_rep.constraint_matrix()
+            # if C_lazy.shape[0] * C_lazy.shape[1] > 3e7:  # Too large to use SVD
+            #     result = krylov_constraint_solve(C_lazy)
+            # else:
+            C = C_lazy.to_dense()
             result = orthogonal_complement(C)
             self.solcache[canon_rep] = result
         return self.solcache[canon_rep][invperm]
 
     def equivariant_projector(self):
         Q = self.equivariant_basis()
-        P = Q @ Q.T.conj()
+        Q_lazy = lazify(Q)
+        P = Q_lazy @ Q_lazy.H
         return P
 
     @property
@@ -310,12 +336,12 @@ class SumRep(Rep):
     def rho(self, M):
         rhos = [rep.rho(M) for rep in self.reps]
         multiplicities = self.reps.values()
-        return DirectSum(rhos, multiplicities)[self.invperm][:, self.invperm]
+        return LazyPerm(self.invperm) @ LazyDirectSum(rhos, multiplicities) @ LazyPerm(self.perm)
 
     def drho(self, A):
         drhos = [rep.drho(A) for rep in self.reps]
         multiplicities = self.reps.values()
-        return DirectSum(drhos, multiplicities)[self.invperm][:, self.invperm]
+        return LazyPerm(self.invperm) @ LazyDirectSum(drhos, multiplicities) @ LazyPerm(self.perm)
 
     def __eq__(self, other):
         return self.reps == other.reps and (self.perm == other.perm).all()
@@ -349,15 +375,20 @@ class SumRep(Rep):
         Qs = {rep: rep.equivariant_basis() for rep in self.reps}
         active_dims = sum([self.reps[rep] * Qs[rep].shape[-1] for rep in Qs.keys()])
         multiplicities = self.reps.values()
-        return DirectSum(Qs.values(), multiplicities)[self.invperm]
+
+        def lazy_Q(array):
+            return lazy_direct_matmat(array, Qs.values(), multiplicities)[self.invperm]
+
+        return LinearOperator(shape=(self.size(), active_dims), matvec=lazy_Q, matmat=lazy_Q)
 
     def equivariant_projector(self, lazy=False):
         Ps = {rep: rep.equivariant_projector() for rep in self.reps}
         multiplicities = self.reps.values()
-        if lazy:
-            return Ps.values(), multiplicities, self.perm, self.invperm
-        else:
-            return DirectSum(Ps.values(), multiplicities)[self.invperm][:, self.invperm]
+
+        def lazy_P(array):
+            return lazy_direct_matmat(array[self.perm], Ps.values(), multiplicities)[self.invperm]  # [:,self.invperm]
+
+        return LinearOperator(shape=(self.size(), self.size()), matvec=lazy_P, matmat=lazy_P)
 
     @staticmethod
     def compute_canonical(rep_cnters, rep_perms):
@@ -482,6 +513,7 @@ def distribute_product(reps, extra_perm=None):
 
 
 def rep_permutation(repsizes_all):
+    """Permutation from block ordering to flattened ordering"""
     size_cumsums = [np.cumsum([0] + [size for size in repsizes]) for repsizes in repsizes_all]
     permutation = np.zeros([cumsum[-1] for cumsum in size_cumsums]).astype(int)
     arange = np.arange(permutation.size)
@@ -517,17 +549,17 @@ class ProductRep(Rep):
     def size(self):
         return product([rep.size() ** count for rep, count in self.reps.items()])
 
-    def rho(self, Ms):
+    def rho(self, Ms, lazy=False):
         if hasattr(self, "G") and isinstance(Ms, dict):
             Ms = Ms[self.G]
-        canonical = Kron([rep.rho(Ms) for rep, c in self.reps.items() for _ in range(c)])
-        return canonical[self.invperm][:, self.invperm]
+        canonical_lazy = LazyKron([rep.rho(Ms) for rep, c in self.reps.items() for _ in range(c)])
+        return LazyPerm(self.invperm) @ canonical_lazy @ LazyPerm(self.perm)
 
     def drho(self, As):
         if hasattr(self, "G") and isinstance(As, dict):
             As = As[self.G]
-        canonical = Kronsum([rep.drho(As) for rep, c in self.reps.items() for _ in range(c)])
-        return canonical[self.invperm][:, self.invperm]
+        canonical_lazy = LazyKronsum([rep.drho(As) for rep, c in self.reps.items() for _ in range(c)])
+        return LazyPerm(self.invperm) @ canonical_lazy @ LazyPerm(self.perm)
 
     def __hash__(self):
         assert self.canonical, f"Not canonical {repr(self)}? perm {self.perm}"
@@ -603,20 +635,20 @@ class DirectProduct(ProductRep):
         assert all(count == 1 for count in self.reps.values())
 
     def equivariant_basis(self):
-        canon_Q = Kron([rep.equivariant_basis() for rep, c in self.reps.items()])
-        return canon_Q[self.invperm]
+        canon_Q = LazyKron([rep.equivariant_basis() for rep, c in self.reps.items()])
+        return LazyPerm(self.invperm) @ canon_Q
 
     def equivariant_projector(self):
-        canon_P = Kron([rep.equivariant_projector() for rep, c in self.reps.items()])
-        return canon_P[self.invperm][:, self.invperm]
+        canon_P = LazyKron([rep.equivariant_projector() for rep, c in self.reps.items()])
+        return LazyPerm(self.invperm) @ canon_P @ LazyPerm(self.perm)
 
     def rho(self, Ms):
-        canonical = Kron([rep.rho(Ms) for rep, c in self.reps.items() for _ in range(c)])
-        return canonical[self.invperm][:, self.invperm]
+        canonical_lazy = LazyKron([rep.rho(Ms) for rep, c in self.reps.items() for _ in range(c)])
+        return LazyPerm(self.invperm) @ canonical_lazy @ LazyPerm(self.perm)
 
     def drho(self, As):
-        canonical = Kronsum([rep.drho(As) for rep, c in self.reps.items() for _ in range(c)])
-        return canonical[self.invperm][:, self.invperm]
+        canonical_lazy = LazyKronsum([rep.drho(As) for rep, c in self.reps.items() for _ in range(c)])
+        return LazyPerm(self.invperm) @ canonical_lazy @ LazyPerm(self.perm)
 
     def __str__(self):
         superscript = str.maketrans("0123456789", "⁰¹²³⁴⁵⁶⁷⁸⁹")
@@ -725,6 +757,17 @@ def binomial_allocation(N, rank, G):
 
 
 def uniform_rep(ch, group):
+    """A heuristic method for allocating a given number of channels (ch)
+    into tensor types. Attempts to distribute the channels evenly across
+    the different tensor types. Useful for hands off layer construction.
+
+    Args:
+        ch (int): total number of channels
+        group (Group): symmetry group
+
+    Returns:
+        SumRep: The direct sum representation with dim(V)=ch
+    """
     d = group.d
     Ns = np.zeros((lambertW(ch, d) + 1), int)
     while ch > 0:

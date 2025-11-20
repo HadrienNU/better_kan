@@ -4,26 +4,7 @@ import numpy as np
 from scipy.linalg import expm
 from scipy.linalg import block_diag
 from .utils import consistent_hash
-
-
-def Kron(Ms):
-    result = np.eye(1)
-    for M in Ms:
-        result = np.kron(result, M)
-    return result
-
-
-def Kronsum(Ms):
-    result = np.zeros(1)
-    for M in Ms:
-        result = np.kron(result, np.eye(M.shape[0])) + np.kron(np.eye(result.shape[0]), M)
-    return result
-
-
-def DirectSum(Ms, multiplicities=None):
-    multiplicities = [1 for M in Ms] if multiplicities is None else multiplicities
-    Ms_all = [M for M, c in zip(Ms, multiplicities) for _ in range(c)]
-    return block_diag(*Ms_all)
+from .lazy_operations import LazyShift, LazyPerm, LazyKron, LazyKronsum
 
 
 class Named(type):
@@ -89,6 +70,7 @@ class Group(object, metaclass=Named):
         return self.samples(1)[0]
 
     def samples(self, N):
+        """Draw N samples from the group (not necessarily Haar measure)"""
         A_dense = np.stack([Ai @ np.eye(self.d) for Ai in self.lie_algebra]) if len(self.lie_algebra) else np.zeros((0, self.d, self.d))
         h_dense = np.stack([hi @ np.eye(self.d) for hi in self.discrete_generators]) if len(self.discrete_generators) else np.zeros((0, self.d, self.d))
         z = np.random.randn(N, A_dense.shape[0])
@@ -162,6 +144,8 @@ class Trivial(Group):
 
 
 class SO(Group):
+    """The special orthogonal group SO(n) in n dimensions"""
+
     def __init__(self, n):
         self.lie_algebra = np.zeros(((n * (n - 1)) // 2, n, n))
         k = 0
@@ -174,6 +158,8 @@ class SO(Group):
 
 
 class O(SO):
+    """The Orthogonal group O(n) in n dimensions"""
+
     def __init__(self, n):
         self.discrete_generators = np.eye(n)[None]
         self.discrete_generators[0, 0, 0] = -1
@@ -181,6 +167,8 @@ class O(SO):
 
 
 class C(Group):
+    """The Cyclic group Ck in 2 dimensions"""
+
     def __init__(self, k):
         theta = 2 * np.pi / k
         self.discrete_generators = np.zeros((1, 2, 2))
@@ -189,28 +177,38 @@ class C(Group):
 
 
 class D(C):
+    """The Dihedral group Dk in 2 dimensions"""
+
     def __init__(self, k):
         super().__init__(k)
         self.discrete_generators = np.concatenate((self.discrete_generators, np.array([[[-1, 0], [0, 1]]])))
 
 
 class Scaling(Group):
+    """The scaling group in n dimensions"""
+
     def __init__(self, n):
         self.lie_algebra = np.eye(n)[None]
         super().__init__(n)
 
 
 class Parity(Group):
+    """The spacial parity group in 1+3 dimensions"""
+
     discrete_generators = -np.eye(4)[None]
     discrete_generators[0, 0, 0] = 1
 
 
 class TimeReversal(Group):
+    """The time reversal group in 1+3 dimensions"""
+
     discrete_generators = np.eye(4)[None]
     discrete_generators[0, 0, 0] = -1
 
 
 class SO13p(Group):
+    """The component of Lorentz group connected to identity"""
+
     lie_algebra = np.zeros((6, 4, 4))
     lie_algebra[3:, 1:, 1:] = SO(3).lie_algebra
     for i in range(3):
@@ -224,6 +222,8 @@ class SO13(SO13p):
 
 
 class O13(SO13p):
+    """The full lorentz group (including Parity and Time reversal)"""
+
     discrete_generators = np.eye(4)[None] + np.zeros((2, 1, 1))
     discrete_generators[0] *= -1
     discrete_generators[1, 0, 0] = -1
@@ -234,16 +234,22 @@ class Lorentz(O13):
 
 
 class SO11p(Group):
+    """The identity component of O(1,1) (Lorentz group in 1+1 dimensions)"""
+
     lie_algebra = np.array([[0.0, 1.0], [1.0, 0.0]])[None]
 
 
 class O11(SO11p):
+    """The Lorentz group O(1,1) in 1+1 dimensions"""
+
     discrete_generators = np.eye(2)[None] + np.zeros((2, 1, 1))
     discrete_generators[0] *= -1
     discrete_generators[1, 0, 0] = -1
 
 
 class Sp(Group):
+    """Symplectic group Sp(m) in 2m dimensions (sometimes referred to instead as Sp(2m) )"""
+
     def __init__(self, m):
         self.lie_algebra = np.zeros((m * (2 * m + 1), 2 * m, 2 * m))
         k = 0
@@ -264,21 +270,33 @@ class Sp(Group):
 
 
 class Z(Group):
+    """The cyclic group Z_n (discrete translation group) of order n.
+    Features a regular base representation."""
+
     def __init__(self, n):
-        self.discrete_generators = np.roll(np.eye(n), 1, axis=0)[None]
+        self.discrete_generators = [LazyShift(n)]  # np.roll(np.eye(n), 1, axis=0)[None]
         super().__init__(n)
 
 
 class S(Group):
+    r"""The permutation group S_n with an n dimensional regular representation."""
+
+    def __new__(cls, n):
+        if n == 1:
+            return Trivial(n)  # Get Trivial group for unique object
+        return super().__new__(cls)
+
     def __init__(self, n):
         perms = np.arange(n)[None] + np.zeros((n - 1, 1)).astype(int)
         perms[:, 0] = np.arange(1, n)
         perms[np.arange(n - 1), np.arange(1, n)[None]] = 0
-        self.discrete_generators = np.array([np.eye(n)[perm] for perm in perms])
+        self.discrete_generators = [LazyPerm(perm) for perm in perms]  # np.array([np.eye(n)[perm] for perm in perms])
         super().__init__(n)
 
 
 class SL(Group):
+    """The special linear group SL(n) in n dimensions"""
+
     def __init__(self, n):
         self.lie_algebra = np.zeros((n * n - 1, n, n))
         k = 0
@@ -296,6 +314,8 @@ class SL(Group):
 
 
 class GL(Group):
+    """The general linear group GL(n) in n dimensions"""
+
     def __init__(self, n):
         self.lie_algebra = np.zeros((n * n, n, n))
         k = 0
@@ -307,6 +327,8 @@ class GL(Group):
 
 
 class U(Group):
+    """The unitary group U(n) in n dimensions (complex)"""
+
     def __init__(self, n):
         lie_algebra_real = np.zeros((n**2, n, n))
         lie_algebra_imag = np.zeros((n**2, n, n))
@@ -327,6 +349,8 @@ class U(Group):
 
 
 class SU(Group):
+    """The special unitary group SU(n) in n dimensions (complex)"""
+
     def __init__(self, n):
         if n == 1:
             return Trivial(1)
@@ -353,10 +377,13 @@ class SU(Group):
 
 
 class Cube(Group):
+    """A discrete version of SO(3) including all 90 degree rotations in 3d space
+    Implements a 6 dimensional representation on the faces of a cube"""
+
     def __init__(self):
         Fperm = np.array([4, 1, 0, 3, 5, 2])
         Lperm = np.array([3, 0, 2, 5, 4, 1])
-        self.discrete_generators = np.array([np.eye(6)[perm] for perm in [Fperm, Lperm]])
+        self.discrete_generators = [LazyPerm(perm) for perm in [Fperm, Lperm]]  # np.array([np.eye(6)[perm] for perm in [Fperm, Lperm]])
         super().__init__()
 
 
@@ -373,6 +400,9 @@ def unpad(padded_perm):
 
 
 class RubiksCube(Group):
+    r"""The Rubiks cube group G<S_48 consisting of all valid 3x3 Rubik's cube transformations.
+    Generated by the a quarter turn about each of the faces."""
+
     def __init__(self):
         order = np.arange(48)
         order_padded = pad(order)
@@ -396,7 +426,7 @@ class RubiksCube(Group):
         Bperm = RotLeft[Uperm[RotRight]]
         Lperm = RotFront[Uperm[RotBack]]
         Dperm = RotRight[RotRight[Uperm[RotLeft[RotLeft]]]]
-        self.discrete_generators = np.array([np.eye(48)[perm] for perm in [Uperm, Fperm, Rperm, Bperm, Lperm, Dperm]])
+        self.discrete_generators = [LazyPerm(perm) for perm in [Uperm, Fperm, Rperm, Bperm, Lperm, Dperm]]  # np.array([np.eye(48)[perm] for perm in [Uperm, Fperm, Rperm, Bperm, Lperm, Dperm]])
         super().__init__()
 
 
@@ -411,6 +441,9 @@ def Rot90(n, k):
 
 
 class ZksZnxZn(Group):
+    """One of the original GCNN groups ℤₖ⋉(ℤₙ×ℤₙ) for translation in x,y
+    and rotation with the discrete 90 degree rotations (k=4) or 180 degree (k=2)"""
+
     def __init__(self, k, n):
         Zn = Z(n)
         Zk = Z(k)
@@ -419,15 +452,22 @@ class ZksZnxZn(Group):
         In = np.eye(n)
         Ik = np.eye(k)
         assert k in [2, 4]
-        self.discrete_generators = []
-        self.discrete_generators.append(np.kron(np.kron(Ik, nshift), In))
-        self.discrete_generators.append(np.kron(np.kron(Ik, In), nshift))
-        self.discrete_generators.append(np.kron(kshift, Rot90(n, 4 // k)))
-        self.discrete_generators = np.array(self.discrete_generators)
+        self.discrete_generators = [LazyKron([Ik, nshift, In]), LazyKron([Ik, In, nshift]), LazyKron([kshift, Rot90(n, 4 // k)])]
+        # self.discrete_generators = []
+        # self.discrete_generators.append(np.kron(np.kron(Ik, nshift), In))
+        # self.discrete_generators.append(np.kron(np.kron(Ik, In), nshift))
+        # self.discrete_generators.append(np.kron(kshift, Rot90(n, 4 // k)))
+        # self.discrete_generators = np.array(self.discrete_generators)
         super().__init__(k, n)
 
 
 class Embed(Group):
+    """A method to embed a given base group representation in larger vector space.
+    Inputs:
+    G: the group (and base representation) to embed
+    d: the dimension in which to embed
+    slice: a slice object specifying which dimensions G acts on."""
+
     def __init__(self, G, d, slice):
         self.lie_algebra = np.zeros((G.lie_algebra.shape[0], d, d))
         self.discrete_generators = np.zeros((G.discrete_generators.shape[0], d, d))
@@ -442,22 +482,27 @@ class Embed(Group):
 
 
 def SO2eR3():
+    """SO(2) embedded in R^3 with rotations about z axis"""
     return Embed(SO(2), 3, slice(2))
 
 
 def O2eR3():
+    """O(2) embedded in R^3 with rotations about z axis"""
     return Embed(O(2), 3, slice(2))
 
 
 def DkeR3(k):
+    """Dihedral D(k) embedded in R^3 with rotations about z axis"""
     return Embed(D(k), 3, slice(2))
 
 
 class DirectProduct(Group):
     def __init__(self, G1, G2):
         I1, I2 = np.eye(G1.d), np.eye(G2.d)
-        self.lie_algebra = np.array([Kronsum([A1, 0 * I2]) for A1 in G1.lie_algebra] + [Kronsum([0 * I1, A2]) for A2 in G2.lie_algebra])
-        self.discrete_generators = np.array([np.kron(M1, I2) for M1 in G1.discrete_generators] + [np.kron(I1, M2) for M2 in G2.discrete_generators])
+        self.lie_algebra = np.array([LazyKronsum([A1, 0 * I2]) for A1 in G1.lie_algebra] + [LazyKronsum([0 * I1, A2]) for A2 in G2.lie_algebra])
+        self.discrete_generators = [LazyKron([M1, I2]) for M1 in G1.discrete_generators] + [
+            LazyKron([I1, M2]) for M2 in G2.discrete_generators
+        ]  # np.array([np.kron(M1, I2) for M1 in G1.discrete_generators] + [np.kron(I1, M2) for M2 in G2.discrete_generators])
         self.names = (repr(G1), repr(G2))
         super().__init__()
 

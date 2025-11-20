@@ -5,6 +5,7 @@ Set of modules and function to deal with permutation invariance of the input
 import torch
 import torch.nn as nn
 from torch.nn.utils.parametrize import register_parametrization, remove_parametrizations
+from .lazy_operations import densify
 
 
 def parametrize_kan_equivariance(model, rep_list):
@@ -105,7 +106,7 @@ class EquivariantBasisWeight(nn.Module):
     def __init__(self, rep_in, rep_out, dtype=torch.float):
         super().__init__()
         self.rep = rep_out * rep_in.T
-        self.register_buffer("basis", torch.tensor(self.rep.equivariant_basis(), dtype=dtype))
+        self.register_buffer("basis", torch.tensor(densify(self.rep.equivariant_basis()), dtype=dtype))
         self.out_features = rep_out.size()
         self.in_features = rep_in.size()
 

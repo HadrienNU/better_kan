@@ -39,7 +39,7 @@ def test_sum(G):
     v_inv = P @ v  # Project to the invariant subspace
 
     gs = G.samples(N)
-    rho_gs = np.array([rep.rho(g) for g in gs])
+    rho_gs = np.array([rep.rho_dense(g) for g in gs])
     gv = np.einsum("nij,j->ni", rho_gs, v_inv)
 
     # # Assert that gv is close to v_inv for all g in the batch
@@ -62,7 +62,7 @@ def test_prod(G):
     v_inv = Q @ np.random.rand(Q.shape[-1])
 
     gs = G.samples(N)
-    rho_gs = np.array([rep.rho(g) for g in gs])
+    rho_gs = np.array([rep.rho_dense(g) for g in gs])
     gv = np.einsum("nij,j->ni", rho_gs, v_inv)
 
     # Assert that gv is close to v_inv for all g in the batch
@@ -90,7 +90,7 @@ def test_high_rank_representations(G):
             v_inv = P @ v
 
             gs = G.samples(N)
-            g_rho = np.array([rep.rho(g) for g in gs])
+            g_rho = np.array([rep.rho_dense(g) for g in gs])
             gv = np.einsum("nij,j->ni", g_rho, v_inv)
             for i in range(N):
                 npt.assert_allclose(gv[i], v_inv, rtol=1e-4, atol=1e-5, err_msg=f"Symmetric vector fails with T{p,q} and G={G}")
@@ -128,8 +128,8 @@ def test_large_representations(G):
     x = np.random.rand(N, repin.size())
     gs = G.samples(N)
 
-    rho_in = np.array([repin.rho(g) for g in gs])
-    rho_out = np.array([repout.rho(g) for g in gs])
+    rho_in = np.array([repin.rho_dense(g) for g in gs])
+    rho_out = np.array([repout.rho_dense(g) for g in gs])
 
     gx = np.einsum("nij,nj->ni", rho_in, x)
     W_gx = gx @ W_equiv.T
