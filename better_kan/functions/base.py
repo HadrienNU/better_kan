@@ -31,6 +31,8 @@ class BasisFunction(nn.Module):
     def reset_parameters(self, init_type="uniform", **init_kwargs):
         if init_type == "uniform":
             nn.init.uniform_(self.weights, **init_kwargs)
+        if init_type == "normal":
+            nn.init.normal_(self.weights, **init_kwargs)
         elif init_type == "noise":
             # Helpers function that return noise of the same shape
             # def noise_fct(X):
@@ -38,7 +40,7 @@ class BasisFunction(nn.Module):
 
             # weights = self.project_on_basis(noise_fct)
             X, w = self.collocations_points()
-            noise = (torch.rand(X.shape[0], self.in_features, self.out_features) - 1 / 2) * init_kwargs["scale"] / self.n_basis_function
+            noise = (torch.rand(X.shape[0], self.in_features, self.out_features) - 1 / 2) * init_kwargs.get("scale", 1.0) / self.n_local_basis_function
             weights = self.curve2coeff(X, noise, w)  # Ici prendre des points de collocation plutôt
 
             assign_parameters(self, "weights", weights)
@@ -46,6 +48,10 @@ class BasisFunction(nn.Module):
     @property
     def n_basis_function(self):
         raise NotImplementedError
+
+    @property
+    def n_local_basis_function(self):  # Return the number of basis function that are summed for a typical input
+        return self.n_basis_function
 
     def collocations_points(self):  # Return a number of collocations points along each input dimensions. When there is an input grid, use the grid
         raise NotImplementedError
@@ -78,11 +84,11 @@ class BasisFunction(nn.Module):
         Returns:
             torch.Tensor: B-spline bases tensor of shape (batch_size, grid_size + spline_order, in_features).
         """
-        torch._assert(x.dim() == 2 and x.size(1) == self.in_features, "Input dimension does not match layer size")
+        torch._assert(x.dim() == 2, "Input dimension does not match layer size")
 
         raise NotImplementedError
 
-    def project_on_basis(self, fct, method="l2"):
+    def project_on_basis(self, fct, method="collocation"):
         """
         When fct is a callable function or module; compute the projection of the function on the basis and update the weights
 
@@ -97,7 +103,7 @@ class BasisFunction(nn.Module):
         if method.lower() == "l2":
             raise NotImplementedError
         elif method.lower() == "collocation":
-            x, _ = self.collocations_points
+            x, _ = self.collocations_points()
             y = fct(x)
             # TODO: check assert
             torch._assert(x.dim() == 2 and x.size(1) == self.in_features, "Input dimension does not match layer size")

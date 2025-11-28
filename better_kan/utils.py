@@ -2,127 +2,10 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.nn.utils.parametrize as parametrize
+from .equivariance.utils import get_mask_parametrizations
 import numpy as np
 from tqdm import tqdm
 import copy
-
-
-def interpolate_moments_pytorch(mu_old, nu_old, new_shape):
-    """
-    Performs a linear interpolation to assign values to the first and second-order moments of gradients of the c_i basis functions coefficients after grid extension.
-
-    Args:
-        mu_old (torch.Tensor):
-            First-order moments before extension.
-        nu_old (torch.Tensor):
-            Second-order moments before extension.
-        new_shape (tuple):
-            The new desired shape
-
-    Returns:
-        mu_new, nu_new (tuple):
-            First- and second-order moments after extension, shape new_shape.
-    """
-    old_shape = mu_old.shape
-    # Return original moments if the dimension hasn't changed, avoiding unnecessary computation.
-    if old_shape == new_shape:
-        return mu_old, nu_old
-    # Detect which dimension has changed
-    changed_dims = [i for i, (o, n) in enumerate(zip(old_shape, new_shape)) if o != n]
-    if len(changed_dims) != 1:
-        raise ValueError(f"Expected exactly one dimension to change, got {changed_dims}")
-    interp_dim = changed_dims[0]
-
-    old_len = old_shape[interp_dim]
-    new_len = new_shape[interp_dim]
-
-    # Move the interpolation dimension to the last position
-    permute_order = list(range(len(old_shape)))
-    permute_order[interp_dim], permute_order[-1] = permute_order[-1], permute_order[interp_dim]
-
-    mu_perm = mu_old.permute(*permute_order)
-    nu_perm = nu_old.permute(*permute_order)
-
-    # Flatten all leading dimensions for interpolation
-    batch_size = int(np.prod(mu_perm.shape[:-1]))
-    mu_2d = mu_perm.reshape(batch_size, old_len).unsqueeze(1)  # (batch_size, 1, old_len)
-    nu_2d = nu_perm.reshape(batch_size, old_len).unsqueeze(1)
-
-    # Perform 1D linear interpolation
-    mu_new_3d = F.interpolate(mu_2d, size=new_len, mode="linear", align_corners=True)
-    nu_new_3d = F.interpolate(nu_2d, size=new_len, mode="linear", align_corners=True)
-    # Reshape back and invert permutation
-    mu_new = mu_new_3d.squeeze(1).reshape(*mu_perm.shape[:-1], new_len).permute(*np.argsort(permute_order))
-    nu_new = nu_new_3d.squeeze(1).reshape(*nu_perm.shape[:-1], new_len).permute(*np.argsort(permute_order))
-
-    print("Interpolated shape:", mu_new.shape)
-    return mu_new, nu_new
-
-
-def transition_optimizer_state(old_params_dict, new_params_dict, old_optimizer):
-    """
-    Implements Algorithm 1 from the paper. It transitions the optimizer state
-    from an old model configuration to a new one after grid adaptation.
-
-    Args:
-        old_params_dict (dict): A dictionary of {name: param} from the model before the update.
-        new_params_dict (dict): A dictionary of {name: param} from the model after the update.
-        old_optimizer (torch.optim.Optimizer): The optimizer instance before the update.
-
-    Returns:
-        dict: The new state_dict for the optimizer.
-    """
-    old_state_dict = old_optimizer.state_dict()
-
-    # Create a mapping from old parameter IDs (used in state_dict) to their names
-    old_idx_to_name = {i: name for i, name in enumerate(old_params_dict.keys())}
-    new_name_to_idx = {name: i for i, name in enumerate(new_params_dict.keys())}
-
-    # Copy the hyperparameter groups from the old state_dict
-    new_param_groups = copy.deepcopy(old_state_dict["param_groups"])
-
-    # Rebuild the 'state' dictionary for the new model's parameters
-    new_state = {}
-
-    # Iterate through the state of the old parameters, where `param_idx` is the key.
-    for param_idx, state in old_state_dict["state"].items():
-        # Find the name of the old parameter using its index.
-        param_name = old_idx_to_name.get(param_idx)
-        if not param_name:
-            continue
-
-        # Find the corresponding parameter and its index in the new model.
-        new_p = new_params_dict.get(param_name)
-        new_param_idx = new_name_to_idx.get(param_name)
-
-        if new_p is None or new_param_idx is None:
-            continue
-
-        # Make a deep copy of the state to avoid modifying the original.
-        new_param_state = copy.deepcopy(state)
-        if "exp_avg" in new_param_state and "exp_avg_sq" in new_param_state and "weights" in param_name:  # Only interpolate for weights
-            mu_old = state["exp_avg"]
-            nu_old = state["exp_avg_sq"]
-            print(param_idx, param_name, new_p.shape)
-            print(old_params_dict.get(param_name).shape)
-            # Interpolate to the shape of the new parameter
-
-            mu_new, nu_new = interpolate_moments_pytorch(mu_old, nu_old, new_p.shape)
-
-            # Update the state with the interpolated moments
-            new_param_state["exp_avg"] = mu_new
-            new_param_state["exp_avg_sq"] = nu_new
-
-        # The key in the new state dictionary must be the ID of the new parameter
-        new_state[new_param_idx] = new_param_state
-
-    # Construct the final state_dict
-    new_state_dict = {
-        "state": new_state,
-        "param_groups": new_param_groups,
-    }
-
-    return new_state_dict
 
 
 def train(
@@ -134,7 +17,7 @@ def train(
     lamb=1.0e-2,
     lamb_l1=1.0,
     lamb_entropy=1.0,
-    update_grid=True,
+    update_grid=False,
     grid_update_freq=50,
     loss_fn=None,
     lr=1.0,
@@ -277,7 +160,23 @@ def train(
     return results
 
 
-def plot(kan, beta=3, norm_alpha=False, scale=1.0, tick=False, in_vars=None, out_vars=None, title=None, ax=None):
+def infer_layer_shapes(model, x):
+    def flat_dim(x):
+        """Return the flattened non-batch dimension."""
+        return int(torch.prod(torch.tensor(x.shape[1:])))
+
+    widths = []
+
+    # First width = flattened input size if needed
+    widths.append(flat_dim(x))
+
+    for layer in model.layers:
+        x = layer(x)
+        widths.append(flat_dim(x))
+    return widths
+
+
+def plot(kan, X_test, beta=3, norm_alpha=False, scale=1.0, tick=False, in_vars=None, out_vars=None, title=None, ax=None):
     """
     plot KAN. Before plot, kan(x) should be run on a typical input to collect statistics on activations functions.
 
@@ -314,19 +213,21 @@ def plot(kan, beta=3, norm_alpha=False, scale=1.0, tick=False, in_vars=None, out
     import networkx as nx
 
     depth = len(kan.layers)
+    kan.set_speed_mode(False)
+    model_widths = infer_layer_shapes(kan, X_test)
 
     # Add nodes to graph, choose position at the same time
     pos = {}
     G = nx.Graph()
-    for n, l in enumerate(kan.width):
+    for n, l in enumerate(model_widths):
         for m in range(l):
             G.add_node((n, m))
             pos[(n, m)] = [(1 / (2 * l) + m / l) * (1 - 0.1 * (n % 2)), n]
 
     # Add network edges
     for la in range(depth):
-        for i in range(kan.width[la]):
-            for j in range(kan.width[la + 1]):
+        for i in range(model_widths[la]):
+            for j in range(model_widths[la + 1]):
                 G.add_edge((la, i), (la + 1, j))
 
     if ax is None:
@@ -335,18 +236,17 @@ def plot(kan, beta=3, norm_alpha=False, scale=1.0, tick=False, in_vars=None, out
     nx.draw_networkx_nodes(G, pos, ax=ax)
     # Plot in and out vars if available
     offset = 0  # 0.15  # Find offset as size of a node ??
-    # mask_in = kan.layers[0].mask.cpu().detach().numpy()
     if in_vars is not None:
-        name_attrs = {(0, m): in_vars[m] for m in range(kan.width[0])}
+        name_attrs = {(0, m): in_vars[m] for m in range(model_widths[0])}
         nx.draw_networkx_labels(G, {n: (x, y - offset) for n, (x, y) in pos.items()}, labels=name_attrs, font_color="red", ax=ax)
     # elif mask_in.shape[0] != mask_in.shape[1]:  # If there is some permutation invariants inputs, lets labels them appropeially
     #     groups = np.argmax(mask_in, axis=0)  # Group to which belong each input
-    #     name_attrs = {(0, m): groups[m] for m in range(kan.width[0])}
+    #     name_attrs = {(0, m): groups[m] for m in range(model_widths[0])}
     #     nx.draw_networkx_labels(G, {n: (x, y - offset) for n, (x, y) in pos.items()}, labels=name_attrs, font_color="yellow", ax=ax)
     if out_vars is not None:
         name_attrs = {}
-        for m in range(kan.width[-1]):
-            name_attrs[(len(kan.width) - 1, m)] = out_vars[m]
+        for m in range(model_widths[-1]):
+            name_attrs[(len(model_widths) - 1, m)] = out_vars[m]
         nx.draw_networkx_labels(G, {n: (x, y + offset) for n, (x, y) in pos.items()}, labels=name_attrs, font_color="red", ax=ax)
 
     def score2alpha(score):
@@ -357,30 +257,58 @@ def plot(kan, beta=3, norm_alpha=False, scale=1.0, tick=False, in_vars=None, out
     act_lines = []
 
     for la in range(depth):
-        inserts_axes.append([[None for _ in range(kan.width[la + 1])] for _ in range(kan.width[la])])
-        act_lines.append([[None for _ in range(kan.width[la + 1])] for _ in range(kan.width[la])])
+        inserts_axes.append([[None for _ in range(model_widths[la + 1])] for _ in range(model_widths[la])])
+        act_lines.append([[None for _ in range(model_widths[la + 1])] for _ in range(model_widths[la])])
         if hasattr(kan.layers[la], "l1_norm"):
             alpha = score2alpha(kan.layers[la].l1_norm.cpu().detach().numpy())
+            alpha[np.isnan(alpha)] = 0.0  # Remove Nan and set to zero
             if alpha.max() <= 0.0:
                 alpha = np.ones_like(alpha)
             else:
                 alpha = alpha / (alpha.max() if norm_alpha else 1.0)
 
             # Take for ranges, either the extremal of the centers or the min/max of the data
-            ranges = [torch.linspace(kan.layers[la].min_vals[d], kan.layers[la].max_vals[d], 150) for d in range(kan.width[la])]
+            ranges = [torch.linspace(kan.layers[la].min_vals[d], kan.layers[la].max_vals[d], 150) for d in range(model_widths[la])]
             x_in = torch.stack(ranges, dim=1)
             acts_vals = kan.layers[la].activations_eval(x_in).cpu().detach().numpy()
             x_ranges = x_in.cpu().detach().numpy()
             # Take mask into account
-            # mask_la = kan.layers[la].mask.cpu().detach().numpy()  # L'idée c'est d'avoir mask [i][j] = True/False pour savoir si on plot
-            # mask = np.zeros(mask_la.shape[1], dtype=bool)
-            # mask[np.argmax(mask_la, axis=1)] = True  # Only plot first graph for each group
+            if parametrize.is_parametrized(kan.layers[la]):
+                mask_la = get_mask_parametrizations(
+                    kan.layers[la].functions[0].parametrizations.weights[0], kan.layers[la].functions[0].weights
+                )  # A priori, on récupère la parametrization dans functions, weights pour avoir
+                mask = np.zeros(mask_la.shape, dtype=bool)
+                _, unique_row_indices = np.unique(mask_la, axis=0, return_index=True)
+                argmax_cols = np.argmax(mask_la[unique_row_indices], axis=1)
+                mask[unique_row_indices, argmax_cols] = True
+                # Prepare color mapping from mask_la values to RGBA using a colormap.
+                # Handle constant arrays to avoid division by zero in Normalize.
+                if mask_la.size == 0 or mask_la.min() == mask_la.max():
+                    # default to black when no data
+                    def _map_val(_):
+                        return (0.0, 0.0, 0.0, 1.0)
 
-            for i in range(kan.width[la]):
-                for j in range(kan.width[la + 1]):
+                else:
+                    norm = plt.Normalize(vmin=mask_la.min(), vmax=mask_la.max())
+
+                    def _map_val(v):
+                        return plt.cm.tab20(norm(v))
+
+            else:
+                mask = np.ones((model_widths[la + 1], model_widths[la]), dtype=bool)
+                mask_la = np.ones((model_widths[la + 1], model_widths[la]), dtype=int)
+
+                # constant mask_la -> default black
+                def _map_val(_):
+                    return (0.0, 0.0, 0.0, 1.0)
+
+            for i in range(model_widths[la]):
+                for j in range(model_widths[la + 1]):
                     u, v = (la, i), (la + 1, j)
-                    nx.draw_networkx_edges(G, pos, edgelist=[(u, v)], alpha=alpha[j, i], ax=ax)
-                    if True:  # mask[i]:
+                    # color based on mask_la value for this edge
+                    color = _map_val(mask_la[j, i])
+                    nx.draw_networkx_edges(G, pos, edgelist=[(u, v)], edge_color=[color], alpha=alpha[j, i], ax=ax)
+                    if mask[j, i]:
                         # Compute central position of the edge
                         x = (pos[u][0] + pos[v][0]) / 2
                         y = (pos[u][1] + pos[v][1]) / 2
@@ -397,15 +325,14 @@ def plot(kan, beta=3, norm_alpha=False, scale=1.0, tick=False, in_vars=None, out
 
                             for label in inset_ax.get_xticklabels() + inset_ax.get_yticklabels():
                                 label.set_alpha(alpha[j, i])
-
                         act_lines[la][i][j] = inset_ax.plot(x_ranges[:, i], acts_vals[:, j, i], "-", color="red", alpha=alpha[j, i])[0]
                         for spine in inset_ax.spines.values():
                             spine.set_alpha(alpha[j, i])
                         inset_ax.patch.set_alpha(alpha[j, i])
                         inserts_axes[la][i][j] = inset_ax
         else:
-            for i in range(kan.width[la]):
-                for j in range(kan.width[la + 1]):
+            for i in range(model_widths[la]):
+                for j in range(model_widths[la + 1]):
                     u, v = (la, i), (la + 1, j)
                     nx.draw_networkx_edges(G, pos, edgelist=[(u, v)], ax=ax)
 
@@ -447,7 +374,7 @@ def update_plot(kan, inserts_axes, act_lines, beta=3, norm_alpha=False, tick=Fal
     >>> model(x) # do a forward pass to obtain model.acts
     >>> model.plot()
     """
-
+    model_widths = infer_layer_shapes(kan)
     depth = len(kan.layers)
 
     def score2alpha(score):
@@ -461,12 +388,12 @@ def update_plot(kan, inserts_axes, act_lines, beta=3, norm_alpha=False, tick=Fal
             else:
                 alpha = alpha / (alpha.max() if norm_alpha else 1.0)
             # Take for ranges, either the extremal of the centers or the min/max of the data
-            ranges = [torch.linspace(kan.layers[la].min_vals[d], kan.layers[la].max_vals[d], 150) for d in range(kan.width[la])]
+            ranges = [torch.linspace(kan.layers[la].min_vals[d], kan.layers[la].max_vals[d], 150) for d in range(model_widths[la])]
             x_in = torch.stack(ranges, dim=1)
             acts_vals = kan.layers[la].activations_eval(x_in).cpu().detach().numpy()
             x_ranges = x_in.cpu().detach().numpy()
-            for i in range(kan.width[la]):
-                for j in range(kan.width[la + 1]):
+            for i in range(model_widths[la]):
+                for j in range(model_widths[la + 1]):
                     inset_ax = inserts_axes[la][i][j]
                     if tick is False:
                         inset_ax.set_xticks([])
@@ -591,8 +518,7 @@ def assign_parameters(module, param, new_value):
         else:
             plist = getattr(module.parametrizations, param)
             # We remove the parametrizations
-            for P in reversed(plist):
-                parametrize.remove_parametrizations(module, param, P, leave_parametrized=True)
+            parametrize.remove_parametrizations(module, param, leave_parametrized=True)
             setattr(module, param, nn.Parameter(new_value))
             # and but them back
             for P in reversed(plist):

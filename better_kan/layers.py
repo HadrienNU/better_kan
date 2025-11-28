@@ -57,6 +57,11 @@ class KANLayer(nn.Module):
         self.set_speed_mode(fast_version)
 
     def reset_parameters(self, init_type, **init_kwargs):
+        if self.bias.requires_grad:
+            if init_type == "uniform":
+                nn.init.uniform_(self.bias, **init_kwargs)
+            if init_type == "normal":
+                nn.init.normal_(self.bias, **init_kwargs)
         for fct in self.functions:
             if hasattr(fct, "reset_parameters"):
                 fct.reset_parameters(init_type, **init_kwargs)
@@ -64,7 +69,7 @@ class KANLayer(nn.Module):
     def forward(self, x: torch.Tensor):
         # Depending if the functions are in slow or fast mode
         if self.fast_mode:
-            return torch.stack([fct(x) for fct in self.functions], dim=0).sum(dim=0)
+            return (torch.stack([fct(x) for fct in self.functions], dim=0).sum(dim=0) + self.bias.unsqueeze(0)) / self.in_features  # Normalize by the number of input
         else:
             original_shape = x.shape
             self.min_vals = torch.min(x, dim=0).values
@@ -89,7 +94,7 @@ class KANLayer(nn.Module):
                 output = torch.max(out_acts, dim=2)
             elif self.pooling_op == "fsum":
                 output = self.pooling_args["invf"](torch.sum(self.pooling_args["f"](out_acts), dim=2))
-            return (output + self.bias.unsqueeze(0)).view(*original_shape[:-1], self.out_features)
+            return (output + self.bias.unsqueeze(0)).view(*original_shape[:-1], self.out_features) / self.in_features
 
     def activations_eval(self, x):
         """

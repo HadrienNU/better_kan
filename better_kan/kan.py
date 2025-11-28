@@ -21,17 +21,28 @@ def build_KAN(
             layers.append(torch.nn.BatchNorm1d(in_features))  # Normalize input
         layer = build_layer(in_features, out_features, layer_cls, **kwargs)
         layers.append(layer)
-    return KAN(layers)
+    return KAN(layers, layers_hidden[0], layers_hidden[-1])
 
 
 class KAN(torch.nn.Module):
-    def __init__(self, layers):
+    def __init__(self, layers, in_features, out_features):  # Store the in out features
         super(KAN, self).__init__()
         self.layers = layers
+        self.in_features = in_features
+        self.out_features = out_features
 
-    @property
-    def width(self):
-        return [self.layers[0].in_features] + [la.out_features for la in self.layers]
+    # @property
+    # def width(self):
+    #     return [self.layers[0].in_features] + [la.out_features for la in self.layers]
+
+    @torch.no_grad()
+    def reset_parameters(self, init_type="uniform", **init_kwargs):
+        for layer in self.layers:
+            if hasattr(layer, "reset_parameters"):
+                try:
+                    layer.reset_parameters(init_type, **init_kwargs)
+                except TypeError:
+                    layer.reset_parameters()
 
     def forward(self, x: torch.Tensor):
         for layer in self.layers:
@@ -48,6 +59,11 @@ class KAN(torch.nn.Module):
 
     def regularization_loss(self, regularize_activation=1.0, regularize_entropy=1.0):
         return sum(layer.regularization_loss(regularize_activation, regularize_entropy) for layer in self.layers if hasattr(layer, "regularization_loss"))
+
+    def set_speed_mode(self, fast=True):
+        for layer in self.layers:
+            if hasattr(layer, "set_speed_mode"):
+                layer.set_speed_mode(fast)
 
     def prune(self, threshold=1e-2, mode="auto", active_neurons_id=None):
         """
@@ -77,7 +93,7 @@ class KAN(torch.nn.Module):
         >>> pruned_model(dataset["test_input"])
         >>> plot(pruned_mode)
         """
-
+        # TODO: Réécrire ça en ne gardant que les couches KAN
         active_neurons = [list(range(self.width[0]))]  # Input size
         for i in range(len(self.layers) - 1):  # Not considering first and last layers
             if hasattr(self.layers[i], "l1_norm") and hasattr(self.layers[i + 1], "l1_norm"):  # Skip layer that are not KAN

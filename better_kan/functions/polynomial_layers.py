@@ -39,12 +39,12 @@ class ChebyshevPolynomial(PolynomialFunction):
             torch.Tensor: Chebyshev bases tensor of shape (batch_size, poly_order, in_features).
         """
         torch._assert(
-            x.dim() == 2 and x.size(1) == self.in_features,
+            x.dim() == 2,
             "Input dimension does not match layer size",
         )
         x = torch.tanh(x)  # Rescale into [-1,1]
         # View and repeat input degree + 1 times
-        x = x.view((-1, self.in_features, 1)).expand(-1, -1, self.poly_order + 1)  # shape = (batch_size, in_features, self.degree + 1)
+        x = x.unsqueeze(-1).expand(-1, -1, self.poly_order + 1)  # shape = (batch_size, in_features, self.degree + 1)
         # Apply acos
         x = x.acos()
         # Multiply by arange [0 .. degree]
@@ -67,11 +67,11 @@ class HermitePolynomial(PolynomialFunction):
             torch.Tensor: Hermite bases tensor of shape (batch_size, poly_order, in_features).
         """
         torch._assert(
-            x.dim() == 2 and x.size(1) == self.in_features,
+            x.dim() == 2,
             "Input dimension does not match layer size",
         )
         x = torch.tanh(x)  # Rescale into grid
-        hermite = torch.ones(x.shape[0], self.poly_order + 1, self.in_features, device=x.device)
+        hermite = torch.ones(x.shape[0], self.poly_order + 1, x.size(1), device=x.device)
         if self.poly_order > 0:
             hermite[:, 1, :] = 2 * x
         for i in range(2, self.poly_order + 1):
