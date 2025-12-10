@@ -55,12 +55,13 @@ class GraphConvEdgeNode(GraphConv):
     def __init__(self, in_channels, out_channels, bias=None):
         super(GraphConvNodeNode).__init__(1, 1, in_channels, out_channels, bias)
 
-    def equivariant_basis(self, X, edge_index):  # Taille 5
+    def equivariant_basis(self, E, edge_index):  # Taille 5
 
-        X_diag = torch.diagonal(X)
+        X_diag = E[edge_index[0] == edge_index[1], :]  # Ce sont tous les élements pour lesquels src == dist
 
-        scatter_add(X[:, edge_index[0]], edge_index[1], dim=0, dim_size=X.size(0))
-        scatter_add(X[edge_index[0], :], edge_index[1], dim=0, dim_size=X.size(0))
+        X_sum = scatter_add(E, edge_index[1], dim=0, dim_size=int(edge_index.max().item() + 1))  # Sum over all edge leading to i
+
+        scatter_add(E, edge_index[0], dim=0, dim_size=X.size(0))
 
         scatter_add(X[:, edge_index[0]], edge_index[1], dim=0, dim_size=X.size(0))
 

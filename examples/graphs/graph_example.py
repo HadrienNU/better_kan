@@ -1,12 +1,13 @@
 import torch
 import torch.nn.functional as F
-from torch_geometric.datasets import QM7b
+from torch_geometric.datasets import MoleculeNet
 from torch_geometric.loader import DataLoader
 from torch_geometric.nn import GCNConv, global_mean_pool
+from torch_geometric.utils import to_dense_adj
 
 # 1. Load the ESOL dataset
 # This will download the dataset to /tmp/ESOL if not present
-dataset = QM7b(root="/tmp/ESOL")
+dataset = MoleculeNet(root="/tmp/ESOL", name="ESOL")
 
 print(f"Dataset: {dataset}")
 print(f"Number of graphs: {len(dataset)}")
@@ -28,6 +29,13 @@ test_loader = DataLoader(test_dataset, batch_size=64, shuffle=False)
 sample = test_dataset[0]
 print(sample)
 print(sample.edge_attr)
+for data in train_loader:
+    print(data.batch, data.batch.shape)
+    res = to_dense_adj(data.edge_index, data.batch)
+    print(res.shape)
+    print((data.batch == 0).sum())
+    print(res[0])
+    break
 
 # # 3. Define the Model
 # class GCN(torch.nn.Module):
