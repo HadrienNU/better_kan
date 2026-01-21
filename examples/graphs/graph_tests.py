@@ -1,6 +1,6 @@
 import torch
 
-from better_kan.graph_layers import GraphConvNodeNode
+from better_kan.graph_layers import GraphConvNodeToNode
 
 N = 5
 d_in = 1
@@ -9,7 +9,7 @@ d_out = 1
 edge_index = torch.tensor([[0, 1, 2, 2], [1, 2, 0, 1]])
 X = torch.tensor([[1.0, 0.0], [0.0, 1.0], [1.0, 1.0]])  # node 0  # node 1  # node 2
 
-layer = GraphConvNodeNode(X.shape[1], 2)
+layer = GraphConvNodeToNode(X.shape[1], 2)
 Y = layer(X, edge_index)
 
 print(Y.shape)  # (5, 6)
