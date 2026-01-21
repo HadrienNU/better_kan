@@ -6,11 +6,42 @@ from scipy.special import binom
 from functools import reduce
 import itertools
 from collections import defaultdict
-from .utils import consistent_hash
+from .utils import consistent_hash, krylov_constraint_solve
 from .lazy_operations import LinearOperator, ConcatLazy, LazyPerm, LazyDirectSum, LazyKron, LazyKronsum, I
 from .lazy_operations import lazify, lazy_direct_matmat, densify
 
 product = lambda c: reduce(lambda a, b: a * b, c)
+
+
+bell_numbers = [
+    1,
+    1,
+    2,
+    5,
+    15,
+    52,
+    203,
+    877,
+    4140,
+    21147,
+    115975,
+    678570,
+    4213597,
+    27644437,
+    190899322,
+    1382958545,
+    10480142147,
+    82864869804,
+    682076806159,
+    5832742205057,
+    51724158235372,
+    474869816156751,
+    4506715738447323,
+    44152005855084346,
+    445958869294805289,
+    4638590332229999353,
+    49631246523618756274,
+]
 
 
 class Rep(object):
@@ -90,6 +121,7 @@ class Rep(object):
         invperm = np.argsort(perm)
         if canon_rep not in self.solcache:
             C_lazy = canon_rep.constraint_matrix()
+            # print(C_lazy.shape)
             # if C_lazy.shape[0] * C_lazy.shape[1] > 3e7:  # Too large to use SVD
             #     result = krylov_constraint_solve(C_lazy)
             # else:
@@ -548,6 +580,26 @@ class ProductRep(Rep):
 
     def size(self):
         return product([rep.size() ** count for rep, count in self.reps.items()])
+
+    def equivariant_basis(self):
+        if self.is_permutation:  # There is an easy case when this is permutation, otherwise, use the usual case
+            canon_rep, perm = self.canonicalize()
+            invperm = np.argsort(perm)
+            if canon_rep not in self.solcache:
+                print("Permutation", type(self), self.reps, self.reps.keys())
+                k = [i for i in self.reps.values()]
+
+                print("Basis size", bell_numbers[sum(k)])  # Compute permutation type, that is the bell number of the sum of the type
+
+                return super().equivariant_basis()
+                # result =
+
+                # # self.solcache[canon_rep] = result
+
+                # self.solcache[canon_rep] = result
+            return self.solcache[canon_rep][invperm]
+        else:
+            return super().equivariant_basis()
 
     def rho(self, Ms, lazy=False):
         if hasattr(self, "G") and isinstance(Ms, dict):

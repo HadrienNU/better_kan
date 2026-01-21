@@ -44,6 +44,33 @@ def unparametrize_layer(layer):
             remove_parametrizations(fct.grid, "grid")
 
 
+def parametrize_mlp_equivariance(mlp, rep_list):
+    """
+    Run through model modules and if they are Linear layers, register parametrization
+    using EquivariantMatrix for weights and EquivariantVector for biases.
+
+    The mlp is expected to expose a sequence of representation objects describing
+    each layer's feature representation. The attribute name can be one of:
+    'rep_list', 'representations' or 'reps'. The length of that sequence must be
+    number_of_linear_layers + 1 (input and outputs for each layer).
+    """
+
+    linear_layers = [m for m in mlp.modules() if isinstance(m, nn.Linear)]
+
+    if len(rep_list) != len(linear_layers) + 1:
+        raise ValueError(f"Length of representation list ({len(rep_list)}) must be number of Linear layers + 1 ({len(linear_layers)+1}).")
+
+    for i, layer in enumerate(linear_layers):
+        rep_in = rep_list[i]
+        rep_out = rep_list[i + 1]
+
+        # parametrise weights and bias if present
+        if hasattr(layer, "weight") and layer.weight is not None:
+            register_parametrization(layer, "weight", EquivariantMatrix(rep_in, rep_out, dtype=layer.weight.dtype))
+        if hasattr(layer, "bias") and layer.bias is not None:
+            register_parametrization(layer, "bias", EquivariantVector(rep_out, dtype=layer.bias.dtype))
+
+
 class EquivariantVector(nn.Module):
     """
     Equivariant module for shape (n_features,) with the dimension being equivariant
@@ -52,7 +79,7 @@ class EquivariantVector(nn.Module):
     def __init__(self, rep, dtype=torch.float) -> None:
         super().__init__()
         self.rep = rep
-        self.register_buffer("basis", torch.tensor(rep.equivariant_basis(), dtype=dtype))
+        self.register_buffer("basis", torch.tensor(densify(self.rep.equivariant_basis()), dtype=dtype))
 
     def forward(self, X):
         return self.basis @ X
@@ -70,7 +97,7 @@ class EquivariantGrid(nn.Module):
         super().__init__()
         self.rep = rep
         self.out_features = rep.size()
-        self.register_buffer("basis", torch.tensor(rep.equivariant_basis(), dtype=dtype))
+        self.register_buffer("basis", torch.tensor(densify(self.rep.equivariant_basis()), dtype=dtype))
 
     def forward(self, X):
         return X @ self.basis.T
@@ -81,13 +108,13 @@ class EquivariantGrid(nn.Module):
 
 class EquivariantMatrix(nn.Module):
     """
-    Equivariant module for shape (out_features,in_features) where the first and last dimension are equivariant and
+    Equivariant module for shape (out_features,in_features) where the first and last dimension are equivariant
     """
 
     def __init__(self, rep_in, rep_out, dtype=torch.float):
         super().__init__()
         self.rep = rep_out * rep_in.T
-        self.register_buffer("basis", torch.tensor(self.rep.equivariant_basis(), dtype=dtype))
+        self.register_buffer("basis", torch.tensor(densify(self.rep.equivariant_basis()), dtype=dtype))
         self.out_features = rep_out.size()
         self.in_features = rep_in.size()
 
