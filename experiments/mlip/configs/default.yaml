@@ -1,0 +1,28 @@
+# Default configuration for MLP Potential training
+
+# Data
+dataset: "/home/vroylan241/Projets/MLIP/MAD_Dataset/filtered_mad/mad"
+
+# Model architecture
+hidden_dim: 64
+n_edge_layers: 2
+n_node_layers: 1
+atom_embedding_dim: 16
+use_self_loops: false
+use_kan: false
+
+# Training
+batch_size: 32
+epochs: 200
+learning_rate: 0.001
+optimizer: adam
+weight_decay: 0.0
+
+# Loss weights
+lambda_energy: 1.0
+lambda_force: 0.1
+
+# Other
+seed: 42
+device: auto
+output_dir: results
